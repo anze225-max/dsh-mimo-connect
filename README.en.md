@@ -7,17 +7,18 @@ English | [中文](./README.md)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-**Bring the Xiaomi MiMo desktop client's quota into DeepSeek Harness.**
+Bring the models included in the MiMo desktop App into DeepSeek Harness
+automatically, and use them from the DSH conversation window with zero
+configuration.
 
-The quota you already signed in for and already paid for inside the MiMo client
-becomes usable from DSH — no separate API key to apply for, and no extra
-resident program to install. Install the plugin and the MiMo models appear in
-the DSH model picker, running on that same client quota.
+It runs on the quota you have already signed in for and already paid for inside
+the MiMo client — **no separate API key to apply for, and no extra resident
+program to install**.
 
 ## Why this exists
 
 MiMo's client quota can normally only be spent from inside the client. To use it
-from another tool there are two usual routes:
+from DSH there are usually just two routes:
 
 | Route | What it costs you |
 |---|---|
@@ -25,8 +26,8 @@ from another tool there are two usual routes:
 | Use a third-party reverse proxy | You install an **extra resident program**, plus an autostart entry |
 
 This plugin is a third route: it **reuses the credentials the client has already
-signed in with** and proxies that quota into DSH. No key to apply for, no extra
-program, no autostart entry.
+signed in with**, and brings that client quota into DSH. No key to apply for, no
+extra program, no autostart entry.
 
 ## Highlights
 

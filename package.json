@@ -1,7 +1,7 @@
 {
   "name": "dsh-mimo-connect",
   "displayName": "DSH MiMo Connect",
-  "description": "复用小米 MiMo 的登录态，把 MiMo 模型接入 DeepSeek Harness —— 桌面端已登录即零配置，也可独立登录；无常驻进程。Bring Xiaomi MiMo models into DeepSeek Harness by reusing the sign-in you already have, with no background service.",
+  "description": "将 MiMo 桌面 App 包含的模型自动接入 DeepSeek Harness，在 DSH 对话窗口里零配置使用。复用客户端已登录的额度，无需单独申请 API Key，也无需常驻程序。Bring the models included in the MiMo desktop App into DeepSeek Harness automatically, with zero configuration.",
   "version": "0.1.0",
   "author": "anze225-max",
   "keywords": [
