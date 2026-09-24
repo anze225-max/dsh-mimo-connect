@@ -21,12 +21,16 @@ import { MiMoCredentialStore } from './credential.js'
 import { MiMoCatalog, MIMO_PROVIDER, FALLBACK_MIMO_MODELS } from './catalog.js'
 import { MiMoSession } from './session.js'
 import { createMiMoAdapter } from './adapter.js'
+import { MiMoQuotaReader } from './quota.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'llm-mimo'
 
 /** The model registry required before the provider can register. */
 export const inject = ['llm']
+
+/** Exact Fetch route the browser half reads the remaining quota from. */
+export const QUOTA_ROUTE = '/api/mimo.quota'
 
 /** How often to re-check for a credential change, in milliseconds. */
 const DEFAULT_POLL_MS = 30000
@@ -56,6 +60,11 @@ export function apply(ctx, config) {
   // sign-out or account switch cannot leave a stale cookie jar in place.
   let session = new MiMoSession({})
   let currentIdentity
+
+  // Reads the account's remaining desktop free quota. The getter keeps it
+  // pointed at whatever session is current, so a credential swap is picked up
+  // without rebuilding the reader.
+  const quota = new MiMoQuotaReader({ getSession: () => session })
 
   let stopped = false
   const timers = []
@@ -93,6 +102,7 @@ export function apply(ctx, config) {
       if (currentIdentity !== undefined) {
         currentIdentity = undefined
         session = new MiMoSession({})
+        quota.invalidate()
         invalidate()
       }
       return undefined
@@ -102,6 +112,8 @@ export function apply(ctx, config) {
     if (identity !== currentIdentity) {
       currentIdentity = identity
       session = new MiMoSession({ jar: MiMoCredentialStore.jarFor(status.credential) })
+      // A different account has a different allowance; drop the old figure.
+      quota.invalidate()
       invalidate()
       ctx.emit('llm/adapters-updated')
     }
@@ -169,6 +181,37 @@ export function apply(ctx, config) {
     timers.length = 0
   })
 
+  // Serve the remaining free quota to the browser half.
+  //
+  // `connection.fetch.register` puts an exact path behind the same
+  // browser-session fence every other `/api` route sits behind, so the client
+  // can read it with a plain `fetch`. The route exists only while this plugin
+  // is loaded, and degrades to `available: false` rather than an error status:
+  // the composer pill simply does not render when there is nothing to show.
+  //
+  // `ctx.inject` is used rather than adding `connection` to the plugin's own
+  // `inject` list, because the service is optional: a host assembled without a
+  // browser connection (a headless run, or the CLI) has none, and that must not
+  // hold back provider registration. A scoped inject stays pending until the
+  // service appears, so the route mounts whenever a browser exists.
+  ctx.inject(['connection'], (scope) => {
+    scope.connection.fetch.register({
+      path: QUOTA_ROUTE,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        const reading = await quota.read({ signal: request.signal })
+        if (reading === undefined) {
+          return Response.json({ available: false }, { headers: { 'cache-control': 'no-store' } })
+        }
+        return Response.json(
+          { available: true, ...reading },
+          { headers: { 'cache-control': 'no-store' } },
+        )
+      },
+    })
+  })
+
   /** Build the non-secret status document used by diagnostics. */
   const statusDocument = async () => {
     const status = await store.status()
@@ -195,6 +238,8 @@ export function apply(ctx, config) {
       },
       cookieCandidates: store.cookieCandidates(),
       ownCredentialPath: store.ownPath(),
+      // Cache-only: reading the status must not issue an outbound request.
+      quota: quota.peek(),
     }
   }
 
