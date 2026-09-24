@@ -2,7 +2,7 @@
   "name": "dsh-mimo-connect",
   "displayName": "DSH MiMo Connect",
   "description": "将 MiMo 桌面 App 包含的模型自动接入 DeepSeek Harness，在 DSH 对话窗口里零配置使用。复用客户端已登录的额度，无需单独申请 API Key，也无需常驻程序。Bring the models included in the MiMo desktop App into DeepSeek Harness automatically, with zero configuration.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "anze225-max",
   "keywords": [
     "dsh-plugin",
@@ -23,19 +23,27 @@
     "dsh-mimo-connect": "bin/cli.js"
   },
   "scripts": {
+    "build": "node tools/build-client.mjs",
+    "prepack": "node tools/build-client.mjs",
     "test": "node tests/run.mjs",
-    "test:quick": "node tests/run.mjs cookie"
+    "test:quick": "node tests/run.mjs cookie",
+    "sync": "node tools/sync-to-profile.mjs"
   },
   "exports": {
     ".": {
       "default": "./src/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
+    "lib",
     "bin",
+    "docs",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -53,6 +61,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   },
   "peerDependencies": {
@@ -62,5 +78,12 @@
     "@deepseek-ai/dsh-llm-pi-ai": "^0.1.5-rc.1 || ^0.1.6 || ^0.1.7",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@earendil-works/pi-ai": "^0.85.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "js-yaml": "^4.1.0",
+    "jsdom": "^26.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
