@@ -1,0 +1,6 @@
+# Register the MiMo provider without changing the profile's current default
+# model. The plugin reuses the Xiaomi MiMo desktop app's sign-in; no separate
+# OAuth flow is started.
+- insert:
+    - id: llm-mimo
+      name: dsh-mimo-connect

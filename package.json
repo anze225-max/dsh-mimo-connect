@@ -1,0 +1,66 @@
+{
+  "name": "dsh-mimo-connect",
+  "displayName": "DSH MiMo Connect",
+  "description": "复用小米 MiMo 的登录态，把 MiMo 模型接入 DeepSeek Harness —— 桌面端已登录即零配置，也可独立登录；无常驻进程。Bring Xiaomi MiMo models into DeepSeek Harness by reusing the sign-in you already have, with no background service.",
+  "version": "0.1.0",
+  "author": "dsh-mimo-connect contributors",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "xiaomi",
+    "mimo",
+    "mimo-desktop",
+    "model-provider",
+    "zero-config"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "src/index.js",
+  "bin": {
+    "dsh-mimo-connect": "bin/cli.js"
+  },
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:quick": "node tests/run.mjs cookie"
+  },
+  "exports": {
+    ".": {
+      "default": "./src/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "bin",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR-USERNAME/dsh-mimo-connect.git"
+  },
+  "homepage": "https://github.com/YOUR-USERNAME/dsh-mimo-connect#readme",
+  "bugs": {
+    "url": "https://github.com/YOUR-USERNAME/dsh-mimo-connect/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-home-paths": "^0.1.5-rc.1 || ^0.1.6 || ^0.1.7",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1 || ^0.1.6 || ^0.1.7",
+    "@deepseek-ai/dsh-llm-pi-ai": "^0.1.5-rc.1 || ^0.1.6 || ^0.1.7",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "@earendil-works/pi-ai": "^0.85.1"
+  }
+}
