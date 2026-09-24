@@ -11,6 +11,16 @@
 
 用的是你在 MiMo 客户端里已经登录、已经充值的那份额度——**不需要单独申请 API Key，也不需要额外装常驻程序**。
 
+![模型选择器中的 MiMo 分组](./docs/model-picker.png)
+
+会话切到 MiMo 时，输入框下方会直接显示剩余额度；用别的模型时它不出现。
+
+![剩余额度与统计行同排](./docs/quota-pill-inline.png)
+
+悬停可看到重置日。
+
+![悬停显示重置日](./docs/quota-pill-hover.jpg)
+
 ## 为什么需要它
 
 MiMo 客户端的额度本来只能在客户端里用。想在 DSH 里用上它，通常只有两条路：
@@ -27,6 +37,7 @@ MiMo 客户端的额度本来只能在客户端里用。想在 DSH 里用上它�
 - **零配置**：客户端已登录，插件装上就能用，不弹任何提示。
 - **复用客户端额度**：用的是你在 MiMo 客户端里的那份额度，不是平台计费。
 - **无常驻进程**：不启动代理、不注入进程、不写注册表自启项。关掉 DSH 就什么都不剩。
+- **剩余额度就地可见**：会话切到 MiMo 时，输入框下方直接显示剩余额度与重置日；用别的模型时它不出现。
 - **可脱离客户端使用**：没装客户端也能让插件单独登录一次，之后与客户端无关。
 - **跟随账号**：客户端换账号或退出登录，插件自动跟随。
 - **支持图片输入**：模型支持时可直接粘贴图片。
@@ -109,6 +120,29 @@ DSH 的 LLM seam
 
 网关按域校验身份：把 `.xiaomi.com` 与 `.account.xiaomi.com` 的 cookie **混在一个请求头里发送**会导致会话被判失效，返回 `EXPIRED` 并踢回登录页。插件为此实现了按域隔离的 cookie jar，并且同名 cookie 只发送一次（取最具体域的值）。这条规则由 `tests/cookie-jar.mjs` 与 `tests/session.mjs` 中专门的回归测试守护。
 
+## 剩余额度显示
+
+会话当前用的是 MiMo 时，输入框下方的统计行右侧会出现一枚额度指示：
+
+```text
+● MiMo 剩余 99.8%
+```
+
+悬停可看到重置日（例如 `重置于 2026-09-30`）。额度低于 20% 时指示点转为提醒色，低于 5% 转为告警色。
+
+**只有会话路由到 MiMo 时才显示。** 用 DeepSeek 或别的模型时，这一行完全不出现，也不会发出任何额度请求——额度显示属于正在花这份额度的会话，不该出现在无关对话里。
+
+数据来自客户端自己的用量接口：
+
+```text
+GET mimo-server-cn.xiaomimimo.com/api/user/usage
+→ {"code":0,"data":{"percent":99.8,"resetDate":"2026-09-30","resetAt":1790782334}}
+```
+
+`percent` 是**剩余**百分比。读取是只读的，不消耗任何额度；结果缓存 60 秒，读失败退避 15 秒，任何失败路径都只是「不显示」，不会影响推理。
+
+实现上，node 半侧注册一条 `/api/mimo.quota` 路由（与其它 `/api` 路由共用同一道浏览器会话校验），浏览器半侧通过 `conversation.composer.dock` 插槽挂载一个组件读取它。宿主没有浏览器连接时（例如 CLI）该路由不注册，provider 照常工作。
+
 ## 配置
 
 | 配置项 | 默认值 | 说明 |
@@ -166,6 +200,7 @@ DSH 的 LLM seam
 
 - **依赖非公开接口**。插件使用客户端自身的端点与凭证，非小米官方开放 API；上游变更后可能需要跟随调整。
 - **响应速度受上游影响**。延迟波动较大，插件无法控制。
+- **额度显示依赖同一套非公开接口**。`/api/user/usage` 变更或下线时，额度指示会静默消失，不影响模型调用。
 - **凭证有效期**。`passToken` 实测有效期 30 天；过期后需重新登录（客户端或 `login`）。
 - **`serviceToken` 需要短期续期**。插件在会话内自动重换，遇到 401 会重试一次。
 - **配额由小米控制**。插件只转发请求，不改变额度、限流或账号权限。
@@ -173,13 +208,40 @@ DSH 的 LLM seam
 ## 开发
 
 ```sh
-node tests/run.mjs           # 全部套件
-node tests/run.mjs cookie    # 名称含 cookie 的套件
+npm run build                 # 生成浏览器半侧 lib/client.js
+node tests/run.mjs            # 全部套件
+node tests/run.mjs client     # 仅客户端半侧
+node tests/run.mjs layout     # 仅排版对照
+node tests/run.mjs cookie     # 名称含 cookie 的套件
 ```
 
 部分套件在检测到可用凭证时会执行真实网络调用，否则自动跳过。
 
-`tools/` 存放本机部署辅助脚本（引用机器相关的 DSH profile 路径），不属于发布测试的一部分。
+渲染与排版测试需要几个只服务测试的依赖：
+
+```sh
+npm i --no-save js-yaml@^4 react@18.3.1 react-dom@18.3.1 jsdom
+```
+
+它们不进发布产物——浏览器半侧在 DSH 页面里只从平台基座取 React。
+
+`tools/` 存放本机部署辅助脚本（引用机器相关的 DSH profile 路径），不属于发布测试的一部分。`npm run sync` 会先构建再把插件同步到 desktop profile。
+
+### 浏览器半侧
+
+客户端 bundle 是手写的 `__ModuleLoader__.load(...)` 形式，没有打包器参与：`src/client.js` 就是产物形状，`tools/build-client.mjs` 补一份 source map 后写到 `lib/client.js`。宿主从 `package.json` 的 `dsh.client` 声明发现它，并把 `exports["./client"]` 指向的文件原样提供在 `/plugins` 下。
+
+改完客户端代码必须重启 DSH：bundle 在进程启动时被快照，`patchReload` 不会重新读取它。
+
+### 额度指示为什么能跟上宿主的排版
+
+统计行的两个原生 pill 是同一个 flex 容器 `[data-composer-stats]` 的子项，靠容器自己的 `display:flex; gap:12px` 排列——没有绝对定位，也没有手算偏移。
+
+本插件不能成为那个容器的子项：注册 `conversation.composer.dock` 时宿主没有声明 `children`，slot 注册表里没有子插槽可用。所以组件用 `createPortal` 把 pill **送进** `[data-composer-stats]`，让它成为同一容器的真正子项，排版权完全交给宿主自己的规则。插件只声明 pill 自身的几何。
+
+`tests/layout-parity.mjs` 从 `dsh-client-ui-chat` 的产物里逐字提取宿主 CSS，把两边的 pill 放进同一容器比对**计算样式**，覆盖字号变化、变量缺失、窄容器与深色主题。找不到 DSH 安装目录时整支跳过（退出码 0）；用 `DSH_APP_ROOT` 可指定位置。
+
+统计行会随会话状态挂载与卸载，宿主也可能整体替换它，所以组件在轮询发现之后改用 `MutationObserver` 盯住替换。
 
 ## 免责声明
 

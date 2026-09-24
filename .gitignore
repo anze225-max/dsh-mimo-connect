@@ -6,3 +6,9 @@ node_modules/
 *.db-shm
 .DS_Store
 Thumbs.db
+
+# 注意：lib/ 必须提交，不要加进忽略列表。
+# 宿主从 package.json 的 exports["./client"] 直接读取 lib/client.js，
+# 安装后没有构建步骤，缺了它 DSH 激活阶段会直接报错。
+# lib/ 由 `npm run build`（tools/build-client.mjs）从 src/client.js 生成。
+
