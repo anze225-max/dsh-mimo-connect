@@ -3,6 +3,7 @@
 [English](./README.en.md) | 中文
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/dsh-mimo-connect.svg)](https://www.npmjs.com/package/dsh-mimo-connect)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
@@ -29,6 +30,12 @@ dsh --profile desktop
 （把 `desktop` 换成你实际使用的 profile：`web` / `desktop` / `dsh-tui`）
 
 装好后在模型选择器里选择 `MiMo` 分组下的模型即可。
+
+也可以从源码安装：
+
+```sh
+dsh plugin --profile desktop add github:anze225-max/dsh-mimo-connect
+```
 
 ## 凭证来源
 
