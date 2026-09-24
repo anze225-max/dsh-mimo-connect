@@ -47,23 +47,55 @@ const REAL_ROWS = [
  * and MUST throw. A plain object silently accepted `ctx.status = fn` and hid
  * the exact bug that broke DSH startup.
  */
-function makeHost({ cookieDb }) {
+function makeHost({ cookieDb, withConnection = true }) {
   const registrations = []
   const emissions = []
   const effects = []
   const errors = []
   const accessors = new Map()
+  const routes = []
 
   const base = {
     llm: {
-      registerAdapter(routes, adapter) {
-        registrations.push({ routes, adapter })
+      registerAdapter(routes_, adapter) {
+        registrations.push({ routes: routes_, adapter })
         return () => { registrations.pop() }
       },
     },
+    ...(withConnection
+      ? {
+          connection: {
+            fetch: {
+              register(route) {
+                routes.push(route)
+                return () => { routes.splice(routes.indexOf(route), 1) }
+              },
+            },
+          },
+        }
+      : {}),
     emit(event) { emissions.push(event) },
     effect(fn) { effects.push(fn) },
-    inject(_deps, fn) { fn(proxy) },
+    /**
+     * Cordis holds a scoped inject pending until every named service exists.
+     * The mock has to model that: calling the body unconditionally would hide
+     * the exact "service never appeared" case the plugin is written to survive.
+     */
+    inject(deps, fn) {
+      const missing = deps.filter(dep => !(dep in base))
+      if (missing.length > 0) return
+      const scoped = new Proxy(base, {
+        get(target, prop, receiver) {
+          if (prop in target) return Reflect.get(target, prop, receiver)
+          if (accessors.has(prop)) return accessors.get(prop).get()
+          return undefined
+        },
+        set(_target, prop) {
+          throw new Error(`cannot set property "${String(prop)}" without provide`)
+        },
+      })
+      fn(scoped)
+    },
     accessor(name, options) {
       if (accessors.has(name)) throw new Error(`property "${name}" is already declared as accessor`)
       accessors.set(name, options)
@@ -92,6 +124,7 @@ function makeHost({ cookieDb }) {
     effects,
     errors,
     accessors,
+    routes,
     config: cookieDb === undefined ? { pollSeconds: 0 } : { cookieDb, pollSeconds: 0 },
   }
 }
@@ -185,6 +218,37 @@ console.log('\n== 回归：apply 不得写裸 ctx 属性 ==')
   checkFn('apply 在 cordis 式 ctx 上不抛异常', err === undefined, err?.message)
   check('状态经 accessor 暴露', [...host.accessors.keys()], ['mimoStatus'])
   checkFn('未使用 ctx.status 服务写入', typeof host.ctx.status !== 'function')
+}
+
+console.log('\n== 额度路由 ==')
+{
+  const dbPath = join(root, 'desktop5', 'Cookies')
+  makeCookieDb(dbPath, REAL_ROWS)
+  const host = makeHost({ cookieDb: dbPath })
+  const err = applyPlugin(mod, host.ctx, host.config)
+  checkFn('apply 不抛异常', err === undefined, err?.message)
+  check('注册了额度路由', host.routes.map(r => r.path), ['/api/mimo.quota'])
+  check('路由只接受 GET', host.routes[0].methods, ['GET'])
+
+  // 上游不可达时必须是 available:false，而不是错误状态或抛错。
+  const response = await host.routes[0].fetch(new Request('http://dsh.invalid/api/mimo.quota'))
+  check('上游不可用时 HTTP 200', response.status, 200)
+  const body = await response.json()
+  check('上游不可用时 available:false', body.available, false)
+  checkFn('禁止缓存', response.headers.get('cache-control') === 'no-store')
+}
+
+console.log('\n== 无 connection 服务 ⇒ 仍注册 provider（headless / CLI）==')
+{
+  const dbPath = join(root, 'desktop6', 'Cookies')
+  makeCookieDb(dbPath, REAL_ROWS)
+  const host = makeHost({ cookieDb: dbPath, withConnection: false })
+  const err = applyPlugin(mod, host.ctx, host.config)
+  checkFn('apply 不抛异常', err === undefined, err?.message)
+  checkFn('provider 仍注册', host.registrations.length === 1)
+  check('不注册额度路由', host.routes.length, 0)
+  const status = await host.ctx.mimoStatus()
+  check('状态仍可读', status.signedIn, true)
 }
 
 console.log('\n== 销毁 ==')

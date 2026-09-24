@@ -22,7 +22,7 @@ function probeWith(indexSource, label) {
   mkdirSync(dir, { recursive: true })
 
   // 复制插件源码，替换 index.js
-  for (const f of ['credential.js', 'cookie-jar.js', 'adapter.js', 'upstream.js', 'catalog.js', 'session.js']) {
+  for (const f of ['credential.js', 'cookie-jar.js', 'adapter.js', 'upstream.js', 'catalog.js', 'session.js', 'quota.js']) {
     copyFileSync(join(SRC, f), join(dir, f))
   }
   writeFileSync(join(dir, 'index.js'), indexSource)
@@ -46,9 +46,15 @@ db.close()
 
 const accessors = new Map()
 const warnings = []
+let proxyRef
 const base = {
   llm: { registerAdapter: () => () => {} },
-  emit() {}, effect() {}, inject(_d, fn) { fn(proxy) },
+  emit() {}, effect() {},
+  // cordis 语义：服务缺失时 scoped inject 保持挂起，绝不调用函数体。
+  inject(deps, fn) {
+    if (deps.some((d) => !(d in base))) return
+    fn(proxyRef)
+  },
   accessor(name, opts) { accessors.set(name, opts); return () => accessors.delete(name) },
   logger: { warn(...a) { warnings.push(a.map(String).join(' ')) }, error(...a) { warnings.push(a.map(String).join(' ')) } },
 }
@@ -56,6 +62,7 @@ const proxy = new Proxy(base, {
   get(t, p, r) { if (p in t) return Reflect.get(t, p, r); if (accessors.has(p)) return accessors.get(p).get(); return undefined },
   set(_t, p) { throw new Error('cannot set property "' + String(p) + '" without provide') },
 })
+proxyRef = proxy
 
 const mod = await import('./index.js')
 let thrown
