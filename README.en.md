@@ -7,20 +7,38 @@ English | [中文](./README.md)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-Bring Xiaomi **MiMo** models into DeepSeek Harness and use them straight from the
-DSH conversation window.
+**Bring the Xiaomi MiMo desktop client's quota into DeepSeek Harness.**
 
-**No MiMo Switch, no background process, no autostart entry.**
+The quota you already signed in for and already paid for inside the MiMo client
+becomes usable from DSH — no separate API key to apply for, and no extra
+resident program to install. Install the plugin and the MiMo models appear in
+the DSH model picker, running on that same client quota.
+
+## Why this exists
+
+MiMo's client quota can normally only be spent from inside the client. To use it
+from another tool there are two usual routes:
+
+| Route | What it costs you |
+|---|---|
+| Apply for a platform API key | That is **platform billing**, a separate account from the client quota — you pay twice |
+| Use a third-party reverse proxy | You install an **extra resident program**, plus an autostart entry |
+
+This plugin is a third route: it **reuses the credentials the client has already
+signed in with** and proxies that quota into DSH. No key to apply for, no extra
+program, no autostart entry.
 
 ## Highlights
 
-- **Zero configuration once the desktop app is signed in** — nothing to do; the
-  MiMo models simply appear in the picker.
-- **Works without the desktop app** — the plugin can also sign in on its own.
-- **No background program** — starts no proxy, injects no process, writes no
-  autostart entry.
-- **Follows your account** — switching accounts or signing out in the desktop
-  app is picked up automatically.
+- **Zero configuration** — with the client already signed in there is nothing to
+  do; the models simply appear.
+- **Uses your client quota** — the same quota you have inside the MiMo client,
+  not platform billing.
+- **No resident process** — starts no proxy, injects no process, writes no
+  autostart entry. Close DSH and nothing is left behind.
+- **Works without the client** — the plugin can also sign in on its own.
+- **Follows your account** — switching accounts or signing out in the client is
+  picked up automatically.
 - **Image input** — paste images when the model supports them.
 - **Visible reasoning** — chain-of-thought streams as thinking events. There is
   no reasoning-level picker, and that is deliberate (see below).

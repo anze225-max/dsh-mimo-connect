@@ -7,18 +7,30 @@
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-将小米 **MiMo** 的模型接入 DeepSeek Harness，在 DSH 对话窗口里直接使用。
+**把 Xiaomi MiMo 桌面客户端的额度反代进 DeepSeek Harness。**
 
-**不依赖 MiMo Switch，没有常驻进程，没有开机自启。**
+你在 MiMo 客户端里已经登录、已经充值的额度，不用再单独申请 API Key，也不用额外装一个常驻程序——装上这个插件，MiMo 的模型就出现在 DSH 的模型选择器里，直接用客户端那份额度跑。
 
-## 功能
+## 为什么需要它
 
-- **桌面端已登录即零配置**：完全不需要任何操作，MiMo 模型直接出现在选择器里。
-- **不需要装桌面端**：也可以让插件单独登录一次，与桌面端无关。
-- **无后台程序**：不启动任何代理、不注入进程、不写注册表自启项。
-- **跟随账号**：桌面端切换账号或退出登录，插件自动跟随。
-- **图片输入**：模型支持图片时可直接粘贴。
-- **思考过程可见**：模型的思维链以流式事件呈现（不提供无效的推理档位选择器，原因见下）。
+MiMo 客户端的额度只能从客户端内部使用。想在别的工具里用上这份额度，通常有两条路：
+
+| 做法 | 代价 |
+|---|---|
+| 单独申请平台 API Key | 走的是**平台计费**，与客户端额度是两套账，等于重新花钱 |
+| 用第三方反代工具 | 需要**额外装一个常驻程序**，还要配开机自启 |
+
+这个插件是第三条路：**直接复用客户端已经登录的凭证**，把额度反代出来给 DSH 用。不额外申请 Key、不额外装程序、不写开机自启。
+
+## 特性
+
+- **零配置**：客户端已登录，插件装上就能用，不弹任何提示。
+- **复用客户端额度**：用的是你在 MiMo 客户端里的那份额度，不是平台计费。
+- **无常驻进程**：不启动代理、不注入进程、不写注册表自启项。关掉 DSH 就什么都不剩。
+- **可脱离客户端使用**：没装客户端也能让插件单独登录一次，之后与客户端无关。
+- **跟随账号**：客户端换账号或退出登录，插件自动跟随。
+- **支持图片输入**：模型支持时可直接粘贴图片。
+- **思考过程可见**：思维链以流式事件呈现。
 
 ## 安装
 
@@ -44,16 +56,16 @@ dsh plugin --profile desktop add github:anze225-max/dsh-mimo-connect
 | 顺序 | 来源 | 说明 |
 |---|---|---|
 | 1 | `$DSH_HOME/.mimo-connect-auth.json` | 插件自己登录后保存 |
-| 2 | MiMo 桌面端 cookie | **只读**复用，不修改桌面端任何文件 |
+| 2 | MiMo 客户端的 cookie | **只读**复用，不修改客户端任何文件 |
 | 3 | 都没有 | 提示运行 `login` 命令 |
 
-桌面端 cookie 的读取位置：
+客户端的 cookie 读取位置：
 
 ```text
 %APPDATA%\Xiaomi MiMo\Partitions\xiaomi-account\Network\Cookies
 ```
 
-该文件是 Chromium 的标准 SQLite cookie 库，插件**复制到临时文件后只读查询**，避免与运行中的桌面端争锁。MiMo 的 cookie 值是**明文存储**的（`value` 有值、`encrypted_value` 为空），因此不需要 DPAPI 解密。
+该文件是 Chromium 的标准 SQLite cookie 库，插件**复制到临时文件后只读查询**，避免与运行中的客户端争锁。MiMo 的 cookie 值是**明文存储**的（`value` 有值、`encrypted_value` 为空），因此不需要 DPAPI 解密。
 
 ## 命令行
 
@@ -61,7 +73,7 @@ dsh plugin --profile desktop add github:anze225-max/dsh-mimo-connect
 dsh plugin --profile desktop exec dsh-mimo-connect status    # 查看登录状态
 dsh plugin --profile desktop exec dsh-mimo-connect verify     # 真实调用一次模型
 dsh plugin --profile desktop exec dsh-mimo-connect doctor     # 本地诊断
-dsh plugin --profile desktop exec dsh-mimo-connect login      # 单独登录（不用桌面端）
+dsh plugin --profile desktop exec dsh-mimo-connect login      # 单独登录（不用客户端）
 dsh plugin --profile desktop exec dsh-mimo-connect logout     # 删除插件自己的凭证
 ```
 
@@ -71,16 +83,18 @@ dsh plugin --profile desktop exec dsh-mimo-connect logout     # 删除插件自�
 
 `login` 会给出逐步指引：打开登录页 → 从开发者工具的 Application → Cookies 里复制三个值粘贴回来。插件会立即验证凭证可用后才保存。
 
-**如果你已经装了 MiMo 桌面端，就不需要 `login`** —— 直接复用即可。
+**如果你已经装了 MiMo 客户端，就不需要 `login`** —— 直接复用即可。
 
 ## 工作原理
 
 ```text
-凭证（passToken / cUserId / userId）
+客户端凭证（passToken / cUserId / userId）
    ↓  STS 换取（3 步重定向）
 serviceToken
    ↓  作为 Cookie 请求头
 mimo-server-cn.xiaomimimo.com/api/route/chat/completions
+   ↓  标准 OpenAI 协议
+DSH 的 LLM seam
 ```
 
 真实端点是 OpenAI 兼容协议，**没有协议翻译层**。`model.headers` 把 cookie 直接注入 pi-ai 构造的请求，因此也不需要本地 shim。
@@ -89,7 +103,7 @@ mimo-server-cn.xiaomimimo.com/api/route/chat/completions
 
 插件把宿主的 `attachments` 服务接入适配器。这不是可选项：dsh-llm-pi-ai 只要发现消息里含图片块而拿不到附件服务，就会抛 `UNSUPPORTED_CONTENT`——**连纯文本轮次也会失败**，只要该会话更早的工具结果里出现过图片。
 
-从其他模型（如 WorkBuddy）切换到 MiMo 时最容易触发，因为历史上下文会被带过来。相关回归测试见 `tests/image-guard.mjs`。
+从其他模型切换到 MiMo 时最容易触发，因为历史上下文会被带过来。相关回归测试见 `tests/image-guard.mjs`。
 
 ### 一个关键实现细节
 
@@ -99,7 +113,7 @@ mimo-server-cn.xiaomimimo.com/api/route/chat/completions
 
 | 配置项 | 默认值 | 说明 |
 |---|---|---|
-| `cookieDb` | 空 | 显式指定桌面端 cookie 库路径 |
+| `cookieDb` | 空 | 显式指定客户端 cookie 库路径 |
 | `pollSeconds` | `30` | 重新检查凭证的间隔（秒）；`0` 关闭轮询 |
 
 环境变量 `MIMO_COOKIE_DB` 可覆盖 cookie 库位置。
@@ -111,9 +125,9 @@ mimo-server-cn.xiaomimimo.com/api/route/chat/completions
 | `mimo-v2.6-flash` | MiMo V2.6 Flash | x0.40 |
 | `mimo-v2.6-pro` | MiMo V2.6 Pro | x1.00 |
 
-倍率是桌面端显示的点数消耗系数，仅作展示，不影响请求。
+倍率是客户端显示的点数消耗系数，仅作展示，不影响请求。
 
-网关**没有模型列表接口**（`/api/route/models` 等均返回 404），所以这份清单是内置快照，取自桌面端 `model-catalog.json` 的 TEXT 条目。
+网关**没有模型列表接口**（`/api/route/models` 等均返回 404），所以这份清单是内置快照，取自客户端 `model-catalog.json` 的 TEXT 条目。
 
 ### 没有推理档位选择器
 
@@ -150,24 +164,22 @@ mimo-server-cn.xiaomimimo.com/api/route/chat/completions
 
 ## 已知限制
 
-- **依赖非公开接口**。插件使用桌面端自身的端点与凭证，非小米官方开放 API；上游变更后可能需要跟随调整。
+- **依赖非公开接口**。插件使用客户端自身的端点与凭证，非小米官方开放 API；上游变更后可能需要跟随调整。
 - **响应速度受上游影响**。延迟波动较大，插件无法控制。
-- **凭证有效期**。`passToken` 实测有效期 30 天；过期后需重新登录（桌面端或 `login`）。
+- **凭证有效期**。`passToken` 实测有效期 30 天；过期后需重新登录（客户端或 `login`）。
 - **`serviceToken` 需要短期续期**。插件在会话内自动重换，遇到 401 会重试一次。
 - **配额由小米控制**。插件只转发请求，不改变额度、限流或账号权限。
 
 ## 开发
 
 ```sh
-node tests/cookie-jar.mjs      # 域隔离（关键回归）
-node tests/credential.mjs      # 凭证来源与优先级
-node tests/session.mjs         # STS 链路（含实网）
-node tests/integration.mjs     # 对真实 DSH 类（含实网 pi-ai 调用）
-node tests/entry.mjs           # 插件生命周期与零提示保证
-node tests/boot-safety.mjs     # 不会触发 DSH 恢复模式
+node tests/run.mjs           # 全部套件
+node tests/run.mjs cookie    # 名称含 cookie 的套件
 ```
 
 部分套件在检测到可用凭证时会执行真实网络调用，否则自动跳过。
+
+`tools/` 存放本机部署辅助脚本（引用机器相关的 DSH profile 路径），不属于发布测试的一部分。
 
 ## 免责声明
 
