@@ -15,6 +15,17 @@ It runs on the quota you have already signed in for and already paid for inside
 the MiMo client — **no separate API key to apply for, and no extra resident
 program to install**.
 
+![MiMo group in the model picker](./docs/model-picker.png)
+
+When a session is routed to MiMo, the remaining quota appears directly under the
+composer. Switch to another model and it is gone.
+
+![Remaining quota on the same line as the session stats](./docs/quota-pill-inline.png)
+
+Hover for the reset date.
+
+![Hover shows the reset date](./docs/quota-pill-hover.jpg)
+
 ## Why this exists
 
 MiMo's client quota can normally only be spent from inside the client. To use it
@@ -37,6 +48,9 @@ extra program, no autostart entry.
   not platform billing.
 - **No resident process** — starts no proxy, injects no process, writes no
   autostart entry. Close DSH and nothing is left behind.
+- **Remaining quota in place** — while the session is routed to MiMo, the
+  remaining quota and reset date show under the composer; with any other model
+  the readout does not appear at all.
 - **Works without the client** — the plugin can also sign in on its own.
 - **Follows your account** — switching accounts or signing out in the client is
   picked up automatically.
@@ -135,6 +149,41 @@ a domain-scoped cookie jar, and emits each cookie name only once (taking the
 value from the most specific matching domain). Guarded by `tests/cookie-jar.mjs`
 and `tests/session.mjs`.
 
+## Remaining quota
+
+While the session is routed to MiMo, a quota readout appears at the right of the
+stats row under the composer:
+
+```text
+● MiMo 剩余 99.8%
+```
+
+Hovering shows the reset date (e.g. `重置于 2026-09-30`). The indicator dot turns
+to a warning colour below 20% and to an alert colour below 5%.
+
+**It only appears while the session is routed to MiMo.** With DeepSeek or any
+other model the readout is absent entirely and issues no quota request — the
+figure belongs to the session that is spending the allowance, not to unrelated
+conversations.
+
+The data comes from the client's own usage endpoint:
+
+```text
+GET mimo-server-cn.xiaomimimo.com/api/user/usage
+→ {"code":0,"data":{"percent":99.8,"resetDate":"2026-09-30","resetAt":1790782334}}
+```
+
+`percent` is the **remaining** share, not the used share. The read is read-only
+and consumes nothing; a successful reading is cached for 60 seconds and a failure
+is backed off for 15. Every failure path simply shows nothing — it can never
+affect inference.
+
+The node half registers an `/api/mimo.quota` route (behind the same browser
+session fence as every other `/api` route) and the browser half mounts a
+component on the `conversation.composer.dock` slot to read it. On a host with no
+browser connection (the CLI, for instance) the route is not registered and the
+provider works as usual.
+
 ## Configuration
 
 | Option | Default | Description |
@@ -205,6 +254,9 @@ plugin-side way to speed this up**.
   require follow-up work.
 - **Response speed depends on upstream.** Latency varies widely and is outside
   the plugin's control.
+- **The quota readout uses the same non-public endpoints.** If
+  `/api/user/usage` changes or disappears, the readout silently stops appearing;
+  model calls are unaffected.
 - **Credential lifetime.** `passToken` was measured at 30 days; after that you
   must sign in again (desktop app or `login`).
 - **`serviceToken` needs short-term renewal.** Handled within the session, with
@@ -215,15 +267,62 @@ plugin-side way to speed this up**.
 ## Development
 
 ```sh
-node tests/run.mjs           # every suite
-node tests/run.mjs cookie    # suites matching "cookie"
+npm run build                 # produce the browser half, lib/client.js
+node tests/run.mjs            # every suite
+node tests/run.mjs client     # browser half only
+node tests/run.mjs layout     # layout parity only
+node tests/run.mjs cookie     # suites matching "cookie"
 ```
 
 Suites that need a real credential skip themselves when none is present. A few
 suites make real network calls when a credential is available.
 
+The rendering and layout suites need a few test-only dependencies:
+
+```sh
+npm i --no-save js-yaml@^4 react@18.3.1 react-dom@18.3.1 jsdom
+```
+
+They are not part of the published artifact — in the DSH page the browser half
+takes React from the shell's platform module table.
+
 `tools/` holds local deployment helpers that reference a machine-specific DSH
-profile; they are not part of the published test suite.
+profile; they are not part of the published test suite. `npm run sync` builds
+first and then syncs the plugin into the desktop profile.
+
+### The browser half
+
+The client bundle is hand-written in the `__ModuleLoader__.load(...)` shape with
+no bundler involved: `src/client.js` already has the artifact's form, and
+`tools/build-client.mjs` adds a source map before writing `lib/client.js`. The
+host discovers it through the `dsh.client` declaration in `package.json` and
+serves the file named by `exports["./client"]` verbatim under `/plugins`.
+
+Restart DSH after changing client code: the bundle is snapshotted at process
+start and `patchReload` will not re-read it.
+
+### Why the quota readout keeps up with the host's layout
+
+The two built-in stats pills are children of one flex container,
+`[data-composer-stats]`, laid out by that container's own `display:flex;
+gap:12px` — no absolute positioning and no hand-computed offsets.
+
+This plugin cannot become a child of that container: when the host registers
+`conversation.composer.dock` it declares no `children`, so the slot registry has
+no sub-slot to contribute to. The component therefore uses `createPortal` to send
+its pill **into** `[data-composer-stats]`, making it a real child of the same
+container and leaving layout entirely to the host's own rules. The plugin
+declares only the pill's own geometry.
+
+`tests/layout-parity.mjs` extracts the host's CSS verbatim from the
+`dsh-client-ui-chat` artifacts and compares computed styles with both pills in
+one container, covering changed font size, missing variables, a narrow container,
+and a dark theme. It skips entirely (exit code 0) when no DSH install is found;
+`DSH_APP_ROOT` overrides the location.
+
+The stats row mounts and unmounts with session state, and the host may replace it
+outright, so after the first discovery the component watches for replacement with
+a `MutationObserver`.
 
 ## Disclaimer
 
