@@ -3,7 +3,7 @@
   "displayName": "DSH MiMo Connect",
   "description": "复用小米 MiMo 的登录态，把 MiMo 模型接入 DeepSeek Harness —— 桌面端已登录即零配置，也可独立登录；无常驻进程。Bring Xiaomi MiMo models into DeepSeek Harness by reusing the sign-in you already have, with no background service.",
   "version": "0.1.0",
-  "author": "dsh-mimo-connect contributors",
+  "author": "anze225-max",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
@@ -44,11 +44,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR-USERNAME/dsh-mimo-connect.git"
+    "url": "git+https://github.com/anze225-max/dsh-mimo-connect.git"
   },
-  "homepage": "https://github.com/YOUR-USERNAME/dsh-mimo-connect#readme",
+  "homepage": "https://github.com/anze225-max/dsh-mimo-connect#readme",
   "bugs": {
-    "url": "https://github.com/YOUR-USERNAME/dsh-mimo-connect/issues"
+    "url": "https://github.com/anze225-max/dsh-mimo-connect/issues"
   },
   "dsh": {
     "bundle": {
