@@ -148,5 +148,9 @@ jobs:
           fi
           echo "OIDC 请求变量存在: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
 
+      # 用 verbose 级别发布：npm 的 OIDC 实现（lib/utils/oidc.js）在 token 交换
+      # 失败时**不抛错**，只写一条 `verbose` 日志然后返回 undefined —— 外层因此
+      # 只看到含糊的 ENEEDAUTH。打开 verbose 才能看到交换失败的真实原因
+      # （例如受信发布者未配置 / 字段不匹配）。
       - name: 发布
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --loglevel verbose
