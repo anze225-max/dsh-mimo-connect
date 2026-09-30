@@ -5,7 +5,7 @@ English | [中文](./README.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![npm](https://img.shields.io/npm/v/dsh-mimo-connect.svg)](https://www.npmjs.com/package/dsh-mimo-connect)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
-[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7%20%7C%200.2.0-rc.2-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
 Bring the models included in the MiMo desktop App into DeepSeek Harness
 automatically, and use them from the DSH conversation window with zero
@@ -132,13 +132,14 @@ request pi-ai builds, which also removes the need for a local shim.
 
 The plugin wires the host's `attachments` service into the adapter. This is not
 optional: dsh-llm-pi-ai throws `UNSUPPORTED_CONTENT` the moment a message
-contains an image block and no attachment service is available — **including a
-text-only turn**, as long as an earlier tool result in that conversation carried
-an image.
+contains an image block and no attachment service is available.
 
-Switching to MiMo mid-conversation from another model (e.g. WorkBuddy) is the
-easiest way to hit this, because the history comes along. Regression coverage:
-`tests/image-guard.mjs`.
+It also wires `resolveImageAccess` (mapped to the host's `fs` service), so the
+image handle the model receives carries the normalized copy's read-only path.
+When `fs` is unavailable the handle simply omits that path instead of failing the
+turn.
+
+Regression coverage: `tests/image-guard.mjs`.
 
 ### One detail that matters
 

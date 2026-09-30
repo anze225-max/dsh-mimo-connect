@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![npm](https://img.shields.io/npm/v/dsh-mimo-connect.svg)](https://www.npmjs.com/package/dsh-mimo-connect)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
-[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7%20%7C%200.2.0-rc.2-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
 将 MiMo 桌面 App 包含的模型自动接入 DeepSeek Harness，在 DSH 对话窗口里零配置使用。
 
@@ -112,9 +112,11 @@ DSH 的 LLM seam
 
 ### 附件服务
 
-插件把宿主的 `attachments` 服务接入适配器。这不是可选项：dsh-llm-pi-ai 只要发现消息里含图片块而拿不到附件服务，就会抛 `UNSUPPORTED_CONTENT`——**连纯文本轮次也会失败**，只要该会话更早的工具结果里出现过图片。
+插件把宿主的 `attachments` 服务接入适配器。这不是可选项：dsh-llm-pi-ai 只要发现消息里含图片块而拿不到附件服务，就会抛 `UNSUPPORTED_CONTENT`。
 
-从其他模型切换到 MiMo 时最容易触发，因为历史上下文会被带过来。相关回归测试见 `tests/image-guard.mjs`。
+另外插件把 `resolveImageAccess` 也接上了（映射到宿主的 `fs` 服务），这样模型拿到的图片句柄会带上归一化副本的只读路径；`fs` 不可用时该句柄只是少一个路径，不会让轮次失败。
+
+相关回归测试见 `tests/image-guard.mjs`。
 
 ### 一个关键实现细节
 

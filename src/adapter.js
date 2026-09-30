@@ -19,7 +19,7 @@
 
 import { createProvider } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
-import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { resolveImageAttachmentAccess, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MIMO_DISPLAY_NAME, MIMO_PROVIDER, displayNameOf } from './catalog.js'
 import { MIMO_SERVER } from './session.js'
@@ -155,10 +155,15 @@ class MiMoPiAiAdapter extends PiAiAdapter {
  *   service. Required whenever a model advertises image input: dsh-llm-pi-ai
  *   throws `UNSUPPORTED_CONTENT` the moment a message carries an image block
  *   and this resolves to undefined.
+ * @param options.getFs - returns the host's filesystem service, used to map an
+ *   attachment's normalized copy to a path the model's tools can read. Entries
+ *   the host does not expose simply drop the path from the image handle.
+ * @param options.resolveImageAccess - overrides the `getFs`-derived image-access
+ *   mapping when a host wants to supply its own.
  * @returns `{ adapter, invalidate }`.
  */
 export function createMiMoAdapter(options) {
-  const { catalog, getSession, resolveAttachments, resolveImageAccess } = options
+  const { catalog, getSession, resolveAttachments, resolveImageAccess, getFs } = options
 
   const baseUrl = `${MIMO_SERVER}/api/route`
   const chatUrl = `${baseUrl}/chat/completions`
@@ -234,9 +239,31 @@ export function createMiMoAdapter(options) {
     ...(resolveAttachments === undefined
       ? {}
       : { resolveAttachments: () => resolveAttachments() }),
-    ...(resolveImageAccess === undefined
-      ? {}
-      : { resolveImageAccess: (attachments, ref) => resolveImageAccess(attachments, ref) }),
+    /**
+     * Host-side image access, wired the same way `dsh-llm-pi-ai` wires its own:
+     *
+     * ```js
+     * resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
+     *   attachments,
+     *   (hostPath) => ctx.get('fs')?.processPathFromHostPath(hostPath),
+     *   ref,
+     * )
+     * ```
+     *
+     * dsh-llm-pi-ai resolves this only after it has already established that the
+     * durable attachment service is present, and a missing mapping degrades to a
+     * handle without a local path (`requestImageHandleText`) rather than failing
+     * the turn — the base64 payload is embedded from
+     * `attachments.readImageRequest()` regardless. Bridging `fs` is what adds
+     * the normalized copy's read-only path to that handle.
+     */
+    resolveImageAccess: resolveImageAccess === undefined
+      ? (attachments, ref) => resolveImageAttachmentAccess(
+          attachments,
+          hostPath => getFs?.()?.processPathFromHostPath(hostPath),
+          ref,
+        )
+      : (attachments, ref) => resolveImageAccess(attachments, ref),
   })
 
   return {

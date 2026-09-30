@@ -89,6 +89,16 @@ export function apply(ctx, config) {
      * lookup deferred until the service is actually needed.
      */
     resolveAttachments: () => ctx.get('attachments'),
+    /**
+     * The host's filesystem service, resolved lazily, for the model-facing
+     * image handle.
+     *
+     * dsh-llm-pi-ai's own wiring maps an attachment's normalized copy to a path
+     * the tools can read (`processPathFromHostPath`). Passing this getter keeps
+     * that behaviour; when the service is absent the handle simply omits the
+     * path instead of failing the turn.
+     */
+    getFs: () => ctx.get('fs'),
   })
 
   /**
