@@ -22,11 +22,37 @@ const checkFn = (label, cond, detail = '') => {
   else { fail++; console.log(`  FAIL ${label} ${detail}`) }
 }
 
-const profileDir = join(process.env.DSH_HOME, 'profiles', 'desktop')
+// 本套件检查的是「本插件装进 profile 之后能否安全加载」，因此需要一个真实的
+// DSH profile。CI 或没装 DSH 的机器上 DSH_HOME 不存在 —— 那是环境状态，
+// 不是缺陷，所以干净地跳过而不是抛错。
+const dshHome = process.env.DSH_HOME
+if (typeof dshHome !== 'string' || dshHome.length === 0) {
+  console.log('\n  SKIP 未设置 DSH_HOME（没有可检查的 DSH profile）')
+  console.log('       在装有 DSH 并已安装本插件的机器上设置 DSH_HOME 后重跑。')
+  console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
+  console.log('结论：无可检查的 profile，跳过（不是失败）')
+  process.exit(0)
+}
+
+const profileDir = join(dshHome, 'profiles', 'desktop')
 console.log(`\n== 组装 profile: ${profileDir} ==`)
 
-const pkg = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf-8'))
-const bundles = pkg.dsh.profile.bundles
+const profileManifest = join(profileDir, 'package.json')
+if (!existsSync(profileManifest)) {
+  console.log(`\n  SKIP 找不到 ${profileManifest}（该 profile 尚未初始化）`)
+  console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
+  console.log('结论：无可检查的 profile，跳过（不是失败）')
+  process.exit(0)
+}
+
+const pkg = JSON.parse(readFileSync(profileManifest, 'utf-8'))
+const bundles = pkg.dsh?.profile?.bundles
+if (!Array.isArray(bundles)) {
+  console.log('\n  SKIP profile manifest 未声明 dsh.profile.bundles')
+  console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
+  console.log('结论：无可检查的 bundle 列表，跳过（不是失败）')
+  process.exit(0)
+}
 console.log('  bundles:', bundles.join(', '))
 
 // 收集所有非框架 bundle 的 insert 条目（DSH 的 composeEntries 做同一件事）
