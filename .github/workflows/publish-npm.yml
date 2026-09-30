@@ -37,20 +37,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # 版本与 npm 官方 trusted-publishing 示例一致（checkout@v6 / setup-node@v6）。
+      # 与 npm 官方 trusted-publishing 示例一致：保留 registry-url（让 npm/ .npmrc
+      # 明确指向 registry.npmjs.org），并禁用缓存。
       #
-      # 关键：**不传 registry-url**。
-      # 传了它，setup-node 会把 `github.token` 写成 .npmrc 的
-      # `//registry.npmjs.org/:_authToken=…`，于是 npm 拿 GitHub 的令牌去认证
-      # npmjs.org，认证失败并返回 404（npm 对未授权一律回 404）。
-      # 实测证据（第一次带 registry-url 的运行）：
-      #   OIDC 可用: yes
-      #   NODE_AUTH_TOKEN 已设置: yes
-      #   .npmrc: //registry.npmjs.org/:_authToken=<redacted>
-      # 发布要走 OIDC，必须让 .npmrc 里没有 _authToken。
+      # 注意 setup-node 默认会把 `github.token` 写进 .npmrc 的
+      # `//registry.npmjs.org/:_authToken=…`。那份令牌对 npmjs.org 无效，
+      # npm 一旦看到它就会拿它去认证（表现为 404），从而**绕过 OIDC**。
+      # 所以下面有一步专门删掉 .npmrc 里的 _authToken —— 两者必须同时成立：
+      #   registry-url 在（官方示例要求） + _authToken 不在（OIDC 才能生效）。
+      # 实测：只有 registry-url 时 → 404（用了 github.token）；
+      #       只有「无 registry-url」时 → ENEEDAUTH（OIDC 未被触发）。
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
       - name: 从 tag 解析版本号
