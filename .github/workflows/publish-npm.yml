@@ -38,12 +38,19 @@ jobs:
       - uses: actions/checkout@v6
 
       # 版本与 npm 官方 trusted-publishing 示例一致（checkout@v6 / setup-node@v6）。
-      # registry-url 让 setup-node 写好 .npmrc 的 registry；认证完全交给 OIDC
-      # （id-token: write），所以不传 token。发布构建不使用缓存。
+      #
+      # 关键：**不传 registry-url**。
+      # 传了它，setup-node 会把 `github.token` 写成 .npmrc 的
+      # `//registry.npmjs.org/:_authToken=…`，于是 npm 拿 GitHub 的令牌去认证
+      # npmjs.org，认证失败并返回 404（npm 对未授权一律回 404）。
+      # 实测证据（第一次带 registry-url 的运行）：
+      #   OIDC 可用: yes
+      #   NODE_AUTH_TOKEN 已设置: yes
+      #   .npmrc: //registry.npmjs.org/:_authToken=<redacted>
+      # 发布要走 OIDC，必须让 .npmrc 里没有 _authToken。
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
       - name: 从 tag 解析版本号
@@ -122,6 +129,24 @@ jobs:
           done
           echo "--- registry ---"
           npm config get registry
+
+      # Trusted Publishing 要求认证走 OIDC。若 .npmrc 里存在 _authToken，
+      # npm 会优先用它，OIDC 就被绕过、最终以 404 失败 —— 因此这里把它清掉，
+      # 并在仍然存在时直接失败，避免又出现一次「静默走错认证」的调试循环。
+      - name: 确保发布只用 OIDC（清掉任何静态令牌）
+        run: |
+          npmrc="$(npm config get userconfig)"
+          echo "userconfig: $npmrc"
+          if [ -f "$npmrc" ]; then
+            sed -i -E '/_authToken/d' "$npmrc" || true
+            echo "--- 清理后的 .npmrc ---"
+            cat "$npmrc"
+          fi
+          if grep -q "_authToken" "$npmrc" 2>/dev/null; then
+            echo "::error::.npmrc 仍含 _authToken，会绕过 OIDC 发布"
+            exit 1
+          fi
+          echo "OIDC 请求变量存在: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
 
       - name: 发布
         run: npm publish --provenance --access public
