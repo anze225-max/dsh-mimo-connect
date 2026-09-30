@@ -35,13 +35,16 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      # 版本与 npm 官方 trusted-publishing 示例一致（checkout@v6 / setup-node@v6）。
+      # registry-url 让 setup-node 写好 .npmrc 的 registry；认证完全交给 OIDC
+      # （id-token: write），所以不传 token。发布构建不使用缓存。
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false   # 发布构建不要用缓存
+          package-manager-cache: false
 
       - name: 从 tag 解析版本号
         id: v
@@ -103,6 +106,22 @@ jobs:
           grep -q "lib/client.js"      /tmp/pack.txt
           grep -q "cordis.patch.yml"   /tmp/pack.txt
           grep -q "src/index.js"       /tmp/pack.txt
+
+      # Trusted Publishing 要求认证走 OIDC，而不是任何静态令牌。
+      # 这一步把发布环境里「npm 究竟看到了什么」记录下来，便于排查
+      # 404 / 认证失败：只报告是否存在，不打印任何令牌内容。
+      - name: 诊断发布环境
+        run: |
+          echo "node: $(node --version)   npm: $(npm --version)"
+          echo "OIDC 可用 (ACTIONS_ID_TOKEN_REQUEST_URL): ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "NODE_AUTH_TOKEN 已设置: ${NODE_AUTH_TOKEN:+yes}"
+          echo "NPM_CONFIG_USERCONFIG: ${NPM_CONFIG_USERCONFIG:-(unset)}"
+          echo "--- npmrc ---"
+          for f in "${NPM_CONFIG_USERCONFIG}" "$HOME/.npmrc" "$(npm config get userconfig)"; do
+            [ -n "$f" ] && [ -f "$f" ] && { echo "[$f]"; sed -E 's/(_authToken=).*/\1<redacted>/' "$f"; }
+          done
+          echo "--- registry ---"
+          npm config get registry
 
       - name: 发布
         run: npm publish --provenance --access public
