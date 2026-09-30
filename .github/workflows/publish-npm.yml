@@ -1,0 +1,108 @@
+name: 发布到 npm
+
+# 通过 npm Trusted Publishing (OIDC) 发布 —— 不需要任何 npm 令牌。
+#
+# 发布方式（以后每次都是这样，无需改 package.json、无需登录）：
+#     git tag v0.2.1 && git push origin v0.2.1
+# 或到仓库 Actions 页面手动触发并填入版本。
+#
+# 版本号由 tag 决定：工作流会先 `npm version` 盖上 tag 的版本再发布，
+# 所以仓库里的 package.json 版本不必手动维护。
+#
+# ⚠️ 一次性前置条件，必须在 npmjs.com 上配置，否则发布会被拒绝：
+#    https://www.npmjs.com/package/dsh-mimo-connect/access
+#    → Trusted Publisher → GitHub Actions
+#    → Organization or user : anze225-max
+#    → Repository           : dsh-mimo-connect
+#    → Workflow filename    : publish-npm.yml   （必须与本文件名完全一致）
+#    → Environment          : （留空）
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '要发布的版本号（例如 0.2.1）'
+        required: true
+
+permissions:
+  id-token: write   # OIDC 必需
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false   # 发布构建不要用缓存
+
+      - name: 从 tag 解析版本号
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::无法从 '$VERSION' 解析出版本号（期望 vX.Y.Z 形式的 tag）"; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "将要发布: $VERSION"
+
+      - name: 盖上版本号
+        run: npm version "${{ steps.v.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      # 测试需要几个只服务测试的依赖；它们不进发布产物。
+      # 这些包都已确认可从 npm 装到下面钉住的版本。
+      # semver 供 tools/check-compat.mjs 使用。
+      - name: 安装测试依赖
+        run: |
+          npm i --no-save --no-audit --no-fund semver@7.8.5 \
+            @deepseek-ai/dsh-llm@0.2.0-rc.2 \
+            @deepseek-ai/dsh-llm-pi-ai@0.2.0-rc.2 \
+            @deepseek-ai/dsh-attachment@0.2.0-rc.2 \
+            @deepseek-ai/dsh-home-paths@0.2.0-rc.2 \
+            @deepseek-ai/schemastery@3.18.4 \
+            @deepseek-ai/cordis@4.0.4 \
+            @earendil-works/pi-ai@0.87.1 \
+            js-yaml@4.1.0 jsdom@26.0.0 react@18.3.1 react-dom@18.3.1
+
+      - name: 语法自检
+        run: |
+          for f in src/index.js src/adapter.js src/client.js src/catalog.js \
+                   src/session.js src/credential.js src/cookie-jar.js \
+                   src/quota.js src/upstream.js bin/cli.js; do
+            node --check "$f"
+          done
+
+      - name: 生成浏览器半侧产物
+        run: npm run build
+
+      - name: 跑测试套件
+        run: npm test
+
+      # 用本次要发布的版本作为运行时版本做闸门自检：
+      # 保证官方 @deepseek-ai/dsh-* 的 peer 范围确实覆盖它。
+      - name: 校验 peer 范围
+        run: node tools/check-compat.mjs package.json 0.2.0-rc.2
+
+      - name: 校验发布包内容
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          # lib/client.js 必须进包：宿主从 exports["./client"] 直接读取它，
+          # 安装后没有构建步骤，缺失会在 DSH 激活阶段直接报错。
+          grep -q "lib/client.js"      /tmp/pack.txt
+          grep -q "cordis.patch.yml"   /tmp/pack.txt
+          grep -q "src/index.js"       /tmp/pack.txt
+
+      - name: 发布
+        run: npm publish --provenance --access public
