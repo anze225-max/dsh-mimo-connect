@@ -13,7 +13,30 @@ const BASE = 'https://mimo-server-cn.xiaomimimo.com'
 const UA = 'MiClaw/1.0'
 
 // --- 从桌面端读取 cookie（模拟 credential.js） ---
-const src = join(process.env.APPDATA, 'Xiaomi MiMo', 'Partitions', 'xiaomi-account', 'Network', 'Cookies')
+//
+// 本套件需要一台装有 MiMo 桌面端、且已登录的机器：cookie 库在 Windows 的
+// %APPDATA% 下，非 Windows 或未安装时没有可读的东西。这类环境（CI、Linux
+// runner）没有可验证的对象，因此干净跳过而不是抛错。
+const appData = process.env.APPDATA
+  ?? (process.platform === 'darwin'
+    ? (process.env.HOME === undefined ? undefined : join(process.env.HOME, 'Library', 'Application Support'))
+    : (process.env.HOME === undefined ? undefined : join(process.env.HOME, '.config')))
+const cookieCandidates = appData === undefined ? [] : [
+  join(appData, 'Xiaomi MiMo', 'Partitions', 'xiaomi-account', 'Network', 'Cookies'),
+  join(appData, 'Xiaomi MiMo', 'Network', 'Cookies'),
+]
+const src = cookieCandidates.find(p => existsSync(p))
+
+if (src === undefined) {
+  console.log('=== 跳过：没有可用的 MiMo 桌面端 cookie 库 ===')
+  console.log(`   平台: ${process.platform}`)
+  for (const p of cookieCandidates) console.log(`   已查找: ${p}`)
+  if (cookieCandidates.length === 0) console.log('   未设置 APPDATA 且无 HOME，无法定位桌面端数据目录')
+  console.log('\n本套件只在装有 MiMo 桌面端并已登录的机器上有意义。')
+  console.log('结论：无可验证的环境，跳过（不是失败）')
+  process.exit(0)
+}
+
 const tmp = join(process.env.TEMP ?? '.', `mimo-ck-${process.pid}.db`)
 for (const s of ['', '-journal']) if (existsSync(src + s)) copyFileSync(src + s, tmp + s)
 
