@@ -98,14 +98,38 @@ const check = (l, a, e) => {
 }
 
 // 从 ui-chat 产物里逐字取出 StatsPills 的 CSS。
+//
+// 类名是 CSS-module 生成的哈希（曾经是 FwxveW_，0.2.0-rc.2 是 iq1doa_），
+// 所以这里**自动发现**它：先定位 StatsPills.module.css 那一块，再取紧随其后
+// 的 css 常量。硬编码类名会在每次 DSH 改样式时误报。
 const chatSrc = readFileSync(CHAT, 'utf-8')
-const m = chatSrc.match(/const css\$1 = "\.FwxveW_root\{([\s\S]*?)";/)
+/** 自动发现 StatsPills 的 CSS-module 前缀。 */
+function discoverStatsPrefix(src) {
+  const marker = 'StatsPills.module.css'
+  const at = src.indexOf(marker)
+  if (at === -1) return undefined
+  // 该区域就在 marker 之后；取第一段形如 .<prefix>root{ 的规则。
+  const region = src.slice(at, at + 6000)
+  const hit = region.match(/\.([A-Za-z0-9_-]{4,})_root\{/)
+  return hit?.[1]
+}
+const STATS_PREFIX = discoverStatsPrefix(chatSrc)
+if (STATS_PREFIX === undefined) {
+  console.error('无法从 ui-chat 提取 StatsPills CSS-module 前缀，UI 变化时本测试需要更新。')
+  process.exit(2)
+}
+const cssRe = new RegExp(`const css\\$\\d+ = "\\.${STATS_PREFIX}_root\\{([\\s\\S]*?)";`)
+const m = chatSrc.match(cssRe)
 if (m === null) {
-  console.error('无法从 ui-chat 提取 StatsPills CSS，UI 变化时本测试需要更新。')
+  console.error(`找到前缀 ${STATS_PREFIX}_ 但未能提取其 CSS 块，UI 变化时本测试需要更新。`)
   process.exit(2)
 }
 const HOST_CSS = m[1].replace(/\\"/g, '"')
-console.log(`\n已提取宿主 CSS（${HOST_CSS.length} 字节）`)
+const HOST_ROOT_CLASS = `${STATS_PREFIX}_root`
+const HOST_ANCHOR_CLASS = `${STATS_PREFIX}_anchor`
+const HOST_PILL_CLASS = `${STATS_PREFIX}_pill`
+const HOST_LABEL_CLASS = `${STATS_PREFIX}_label`
+console.log(`\n已提取宿主 CSS（${HOST_CSS.length} 字节，前缀 ${STATS_PREFIX}_）`)
 console.log(`   来源: ${CHAT}`)
 
 /**
@@ -143,7 +167,7 @@ async function compare(dom) {
 
   // 注入宿主样式 + 插件样式。
   const hostStyle = dom.window.document.createElement('style')
-  hostStyle.textContent = `.FwxveW_root{${HOST_CSS}`
+  hostStyle.textContent = `.${HOST_ROOT_CLASS}{${HOST_CSS}`
   dom.window.document.head.appendChild(hostStyle)
 
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ available: true, percent: 99.8, resetDate: '2026-09-30' }) })
@@ -162,9 +186,9 @@ async function compare(dom) {
     throw new Error(`unknown module: ${s}`)
   })
 
-  // 统计行容器，模拟宿主自己那一个。
+  // 统计行容器，模拟宿主自己那一个（dock 行就是它）。
   const rowEl = dom.window.document.createElement('div')
-  rowEl.className = 'FwxveW_root'
+  rowEl.className = HOST_ROOT_CLASS
   rowEl.setAttribute('data-composer-stats', 'true')
   dom.window.document.body.appendChild(rowEl)
 
@@ -174,13 +198,13 @@ async function compare(dom) {
   // 两种都给出来，比对时取与插件同元素类型的那一个，避免把 UA 对
   // <button> 的默认背景（buttonface）当成作者样式差异。
   rowEl.innerHTML = `
-    <span class="FwxveW_anchor"><span class="FwxveW_pill" data-ref="idle"><span class="FwxveW_label">1 轮 1 步 · 110 tok/s</span></span></span>
-    <span class="FwxveW_anchor"><button type="button" class="FwxveW_pill" data-ref="active"><span class="FwxveW_label">12K tok · 缓存命中 0%</span></button></span>
+    <span class="${HOST_ANCHOR_CLASS}"><span class="${HOST_PILL_CLASS}" data-ref="idle"><span class="${HOST_LABEL_CLASS}">1 轮 1 步 · 110 tok/s</span></span></span>
+    <span class="${HOST_ANCHOR_CLASS}"><button type="button" class="${HOST_PILL_CLASS}" data-ref="active"><span class="${HOST_LABEL_CLASS}">12K tok · 缓存命中 0%</span></button></span>
   `
   const hostSpanPill = rowEl.querySelector('[data-ref="idle"]')
   const hostButtonPill = rowEl.querySelector('[data-ref="active"]')
 
-  // 再挂载我的组件，让它 portal 进行容器。
+  // 再挂载我的组件，作为同一 dock 行的普通条目。
   let captured
   mod.apply({
     effect(fn) { fn() },
@@ -195,8 +219,10 @@ async function compare(dom) {
     locale: { register: () => () => {} },
   })
 
+  // 模拟宿主如何安放一个 list 槽位条目：把插件容器插进它自己的 flex 行
+  // （dock 行就是这一行），而不是另起一行或绝对定位。
   const host = dom.window.document.createElement('div')
-  dom.window.document.body.appendChild(host)
+  rowEl.appendChild(host)
   const root_ = ReactDOMClient.createRoot(host)
   const { act } = React
   const props = captured.d.inject('session-1')
@@ -204,9 +230,14 @@ async function compare(dom) {
   await act(async () => { root_.render(React.createElement(captured.C, { ...props, t })) })
   await act(async () => { await new Promise(r => setTimeout(r, 30)) })
 
-  const minePill = rowEl.querySelector('.mimoq_pill')
-  const mineAnchor = rowEl.querySelector('.mimoq_anchor')
-  const hostAnchor = rowEl.querySelector('.FwxveW_anchor')
+  const minePill = host.querySelector('.mimoq_pill')
+  const mineAnchor = host.querySelector('.mimoq_anchor')
+  const hostAnchor = rowEl.querySelector(`.${HOST_ANCHOR_CLASS}`)
+
+  // 新实现里我的 pill 由 dock 槽位渲染进自己的容器；宿主把「宿主 pill」与
+  // 「插件条目」都放进同一个 flex 行。用同一行容器的计算样式把两边对齐比对。
+  const rowKeysHost = rowEl
+  const rowKeysMine = host
 
   const read = (el, keys) => {
     if (el === null || el === undefined) return undefined
@@ -242,10 +273,11 @@ async function compare(dom) {
     mineAnchor: read(mineAnchor, ANCHOR_KEYS),
     row: read(rowEl, ROW_KEYS),
     rowHtml: rowEl.innerHTML,
-    // 我的 pill 必须是这一行的子项，且顺序在最后。
-    mineIsChild: minePill !== null && minePill.closest('[data-composer-stats]') === rowEl,
-    childCount: rowEl.children.length,
-    mineIsLast: rowEl.lastElementChild === mineAnchor,
+    // 我的 pill 在自己的 dock 容器里；该容器是宿主 flex 行的子项。
+    mineIsChild: minePill !== null && minePill.closest('[data-mimo-quota]') !== null,
+    mineRow: read(host, ROW_KEYS),
+    childCount: host.children.length,
+    mineIsLast: host.lastElementChild === mineAnchor,
     mineTag: minePill?.tagName,
     hostTag: hostSpanPill?.tagName,
     // 先把样式表文本抓出来再关窗口，调用方就不必碰已 close 的 DOM。
@@ -276,9 +308,8 @@ console.log('\n== 1. 默认主题下逐项比对 ==')
   })
   const r = await compare(dom)
 
-  checkFn('我的 pill 在统计行内', r.mineIsChild, r.rowHtml.slice(0, 200))
-  check('统计行现有 3 个子项', r.childCount, 3)
-  checkFn('我的 pill 排在最后', r.mineIsLast, r.rowHtml.slice(-160))
+  checkFn('我的 pill 渲染出来了', r.mineIsChild, r.rowHtml.slice(0, 200))
+  checkFn('我的 pill 是容器里最后一项', r.mineIsLast, r.rowHtml.slice(-160))
 
   console.log('       宿主 pill :', JSON.stringify(r.host))
   console.log('       我的 pill :', JSON.stringify(r.mine))
@@ -382,7 +413,8 @@ console.log('\n== 6. 样式作用域：不污染宿主 ==')
   console.log('       选择器:', selectors.join(' | '))
   const leaking = selectors.filter(sel => !sel.includes('mimoq_'))
   checkFn('所有选择器都限定在 mimoq_ 前缀', leaking.length === 0, leaking.join(' | '))
-  checkFn('未定义宿主类名', !cssInjected.includes('.FwxveW_'), cssInjected.slice(0, 120))
+  // 绝不能命中宿主当前的 CSS-module 前缀（前缀是自动发现的，随 DSH 版本变化）。
+  checkFn('未定义宿主类名', !cssInjected.includes(`.${STATS_PREFIX}_`), cssInjected.slice(0, 120))
   checkFn('未使用通配符选择器', !selectors.some(s => s === '*'), selectors.join(' | '))
   checkFn('未使用 !important', !cssInjected.includes('!important'), cssInjected.slice(0, 120))
   checkFn('未对宿主元素做全局覆盖', !/^\s*(html|body|\*)/m.test(cssInjected), cssInjected.slice(0, 120))

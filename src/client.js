@@ -73,7 +73,7 @@ window.__ModuleLoader__.load({
      * and then removes them when that plugin unloads.
      */
     const CSS = `
-.mimoq_pill{box-sizing:border-box;max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;background:0 0;border:none;border-radius:24px;align-items:center;gap:6px;padding:1px 8px;display:inline-flex;cursor:default}
+.mimoq_pill{box-sizing:border-box;corner-shape:round;max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;background:0 0;border:none;border-radius:999px;align-items:center;gap:6px;padding:1px 8px;display:inline-flex}
 .mimoq_pill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
 .mimoq_anchor{min-width:0;display:inline-flex}
 .mimoq_dot{flex:none;width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.55}
