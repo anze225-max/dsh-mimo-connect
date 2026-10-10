@@ -131,7 +131,7 @@ class MiMoPiAiAdapter extends PiAiAdapter {
 
   async listModels(provider) {
     const models = await super.listModels(provider)
-    return models.map((model) => {
+    return models.map(model => {
       const info = this.#infoFor(model.id)
       return info === undefined ? model : { ...model, name: displayNameOf(info) }
     })
@@ -147,19 +147,21 @@ class MiMoPiAiAdapter extends PiAiAdapter {
 /**
  * Build the adapter DSH registers.
  *
+ * @param {object} options - the adapter's dependencies.
  * @param options.catalog - the catalog holder.
  * @param options.getSession - returns the session currently in effect. A getter
  *   rather than a session instance, because the session is replaced whenever
  *   the credential changes (sign-in, sign-out, account switch).
- * @param options.resolveAttachments - returns the host's durable attachment
- *   service. Required whenever a model advertises image input: dsh-llm-pi-ai
- *   throws `UNSUPPORTED_CONTENT` the moment a message carries an image block
- *   and this resolves to undefined.
- * @param options.getFs - returns the host's filesystem service, used to map an
- *   attachment's normalized copy to a path the model's tools can read. Entries
- *   the host does not expose simply drop the path from the image handle.
- * @param options.resolveImageAccess - overrides the `getFs`-derived image-access
- *   mapping when a host wants to supply its own.
+ * @param {() => any} [options.resolveAttachments] - returns the host's durable
+ *   attachment service. Required whenever a model advertises image input:
+ *   dsh-llm-pi-ai throws `UNSUPPORTED_CONTENT` the moment a message carries an
+ *   image block and this resolves to undefined.
+ * @param {() => any} [options.getFs] - returns the host's filesystem service,
+ *   used to map an attachment's normalized copy to a path the model's tools can
+ *   read. Entries the host does not expose simply drop the path from the image
+ *   handle.
+ * @param {Function} [options.resolveImageAccess] - overrides the `getFs`-derived
+ *   image-access mapping when a host wants to supply its own.
  * @returns `{ adapter, invalidate }`.
  */
 export function createMiMoAdapter(options) {
@@ -174,9 +176,10 @@ export function createMiMoAdapter(options) {
    * `getModels` is re-read on every listing, so a renewed `serviceToken`
    * reaches the next request without re-registering the provider.
    */
-  const buildModels = () => catalog.current().map(
-    info => toPiModel(info, baseUrl, { Cookie: getSession().jar.headerFor(chatUrl) }),
-  )
+  const buildModels = () =>
+    catalog
+      .current()
+      .map(info => toPiModel(info, baseUrl, { Cookie: getSession().jar.headerFor(chatUrl) }))
 
   const provider = {
     ...createProvider({
@@ -236,9 +239,7 @@ export function createMiMoAdapter(options) {
     // no resolver, pi-ai rejects any message containing an image block with
     // UNSUPPORTED_CONTENT — including a text-only turn in a conversation whose
     // earlier tool results carried images.
-    ...(resolveAttachments === undefined
-      ? {}
-      : { resolveAttachments: () => resolveAttachments() }),
+    ...(resolveAttachments === undefined ? {} : { resolveAttachments: () => resolveAttachments() }),
     /**
      * Host-side image access, wired the same way `dsh-llm-pi-ai` wires its own:
      *
@@ -257,13 +258,15 @@ export function createMiMoAdapter(options) {
      * `attachments.readImageRequest()` regardless. Bridging `fs` is what adds
      * the normalized copy's read-only path to that handle.
      */
-    resolveImageAccess: resolveImageAccess === undefined
-      ? (attachments, ref) => resolveImageAttachmentAccess(
-          attachments,
-          hostPath => getFs?.()?.processPathFromHostPath(hostPath),
-          ref,
-        )
-      : (attachments, ref) => resolveImageAccess(attachments, ref),
+    resolveImageAccess:
+      resolveImageAccess === undefined
+        ? (attachments, ref) =>
+            resolveImageAttachmentAccess(
+              attachments,
+              hostPath => getFs?.()?.processPathFromHostPath(hostPath),
+              ref,
+            )
+        : (attachments, ref) => resolveImageAccess(attachments, ref),
   })
 
   return {

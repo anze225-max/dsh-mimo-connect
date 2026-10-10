@@ -12,12 +12,22 @@ let fail = 0
 const check = (label, actual, expected) => {
   const a = JSON.stringify(actual)
   const e = JSON.stringify(expected)
-  if (a === e) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label}\n       expected ${e}\n       actual   ${a}`) }
+  if (a === e) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label}\n       expected ${e}\n       actual   ${a}`)
+  }
 }
 const checkFn = (label, cond, detail = '') => {
-  if (cond) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label} ${detail}`) }
+  if (cond) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label} ${detail}`)
+  }
 }
 
 /** Minimal Response stand-in with a real Headers instance. */
@@ -47,11 +57,16 @@ console.log('\n== session: successful redirect chain ==')
     const u = new URL(url)
     if (u.hostname === 'mimo-server-cn.xiaomimimo.com' && u.pathname === '/api/user/xiaomi/me') {
       const cb = `${MIMO_SERVER}/api/sts?sign=SIG&followup=${encodeURIComponent(`${MIMO_SERVER}/api/user/xiaomi/me`)}`
-      return res(302, { location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(cb)}` })
+      return res(302, {
+        location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(cb)}`,
+      })
     }
     if (u.hostname === 'account.xiaomi.com') {
       const cb = u.searchParams.get('callback')
-      return res(302, { location: cb, setCookie: ['deviceId=wb_test; Path=/; Domain=.account.xiaomi.com'] })
+      return res(302, {
+        location: cb,
+        setCookie: ['deviceId=wb_test; Path=/; Domain=.account.xiaomi.com'],
+      })
     }
     if (u.pathname === '/api/sts') {
       return res(307, {
@@ -68,14 +83,22 @@ console.log('\n== session: successful redirect chain ==')
   check('chain length', seen.length, 3)
 
   check('hop 1 sent passport cookies to the mimo server host', seen[0].cookie, '')
-  checkFn('hop 2 sent passport cookies to account.xiaomi.com',
-    seen[1].cookie.includes('passToken=PT') && seen[1].cookie.includes('cUserId=CU'))
+  checkFn(
+    'hop 2 sent passport cookies to account.xiaomi.com',
+    seen[1].cookie.includes('passToken=PT') && seen[1].cookie.includes('cUserId=CU'),
+  )
   // deviceId is issued for .account.xiaomi.com, and the STS hop goes to the
   // mimo server domain — so scoping means it correctly is NOT sent there.
   // (The live check below proves the mint succeeds regardless.)
-  checkFn('deviceId stored on its own domain', jar.get('account.xiaomi.com', 'deviceId') === 'wb_test')
+  checkFn(
+    'deviceId stored on its own domain',
+    jar.get('account.xiaomi.com', 'deviceId') === 'wb_test',
+  )
   checkFn('deviceId not leaked to the mimo server host', !seen[2].cookie.includes('deviceId'))
-  checkFn('passport cookies not leaked to the mimo server host', !seen[2].cookie.includes('passToken'))
+  checkFn(
+    'passport cookies not leaked to the mimo server host',
+    !seen[2].cookie.includes('passToken'),
+  )
   for (const hop of seen) {
     const pairs = hop.cookie.length === 0 ? [] : hop.cookie.split('; ')
     const names = pairs.map(p => p.split('=')[0])
@@ -99,7 +122,7 @@ console.log('\n== session: concurrent ensureSession shares one mint ==')
   const jar = new CookieJar()
   jar.set('.account.xiaomi.com', 'passToken', 'PT')
   let chains = 0
-  const fetchMock = async (url) => {
+  const fetchMock = async url => {
     const u = new URL(url)
     if (u.hostname === 'account.xiaomi.com') {
       chains++
@@ -108,11 +131,15 @@ console.log('\n== session: concurrent ensureSession shares one mint ==')
     if (u.pathname === '/api/sts') {
       return res(307, { setCookie: ['serviceToken=ST-ONCE; Domain=.xiaomimimo.com'] })
     }
-    return res(302, { location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(`${MIMO_SERVER}/api/sts?sign=S`)}` })
+    return res(302, {
+      location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(`${MIMO_SERVER}/api/sts?sign=S`)}`,
+    })
   }
   const session = new MiMoSession({ jar, fetch: fetchMock })
   const [a, b, c] = await Promise.all([
-    session.ensureSession(), session.ensureSession(), session.ensureSession(),
+    session.ensureSession(),
+    session.ensureSession(),
+    session.ensureSession(),
   ])
   check('all callers get the token', [a, b, c], ['ST-ONCE', 'ST-ONCE', 'ST-ONCE'])
   check('only one chain was walked', chains, 1)
@@ -125,9 +152,16 @@ console.log('\n== session: failure when no token appears ==')
   const fetchMock = async () => res(302, { location: `${XIAOMI_ACCOUNT}/loop` })
   const session = new MiMoSession({ jar, fetch: fetchMock })
   let threw
-  try { await session.ensureSession() } catch (e) { threw = e }
-  checkFn('throws with an actionable message', threw !== undefined && /serviceToken/.test(threw.message),
-    threw?.message)
+  try {
+    await session.ensureSession()
+  } catch (e) {
+    threw = e
+  }
+  checkFn(
+    'throws with an actionable message',
+    threw !== undefined && /serviceToken/.test(threw.message),
+    threw?.message,
+  )
 }
 
 console.log('\n== session: 401 triggers one renewal ==')
@@ -136,7 +170,7 @@ console.log('\n== session: 401 triggers one renewal ==')
   jar.set('.account.xiaomi.com', 'passToken', 'PT')
   let chatCalls = 0
   let tokenIssue = 0
-  const fetchMock = async (url) => {
+  const fetchMock = async url => {
     const u = new URL(url)
     if (u.pathname === '/api/sts') {
       tokenIssue++
@@ -150,7 +184,9 @@ console.log('\n== session: 401 triggers one renewal ==')
       if (chatCalls === 1) return res(401, { body: '' })
       return res(200, { body: 'data: ok' })
     }
-    return res(302, { location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(`${MIMO_SERVER}/api/sts?sign=S`)}` })
+    return res(302, {
+      location: `${XIAOMI_ACCOUNT}/pass/serviceLogin?callback=${encodeURIComponent(`${MIMO_SERVER}/api/sts?sign=S`)}`,
+    })
   }
   const session = new MiMoSession({ jar, fetch: fetchMock })
   const response = await session.chatStream('{}')
@@ -167,7 +203,10 @@ console.log('\n== session: request carries scoped cookies only ==')
   let captured
   const session = new MiMoSession({
     jar,
-    fetch: async (url, init) => { captured = { url, cookie: init.headers.Cookie ?? '' }; return res(200) },
+    fetch: async (url, init) => {
+      captured = { url, cookie: init.headers.Cookie ?? '' }
+      return res(200)
+    },
   })
   await session.request(`${MIMO_SERVER}/api/route/chat/completions`, { method: 'POST' })
   check('mimo host receives its token', captured.cookie, 'serviceToken=ST')
@@ -186,11 +225,13 @@ console.log('\n== live check (skipped when no desktop credential) ==')
     try {
       const token = await session.ensureSession()
       checkFn('live: serviceToken minted', typeof token === 'string' && token.length > 20)
-      const response = await session.chatStream(JSON.stringify({
-        model: 'mimo-v2.6-flash',
-        messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
-        stream: false,
-      }))
+      const response = await session.chatStream(
+        JSON.stringify({
+          model: 'mimo-v2.6-flash',
+          messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
+          stream: false,
+        }),
+      )
       check('live: inference returns 200', response.status, 200)
       const body = await response.text()
       checkFn('live: real answer returned', /PONG/.test(body), body.slice(0, 160))

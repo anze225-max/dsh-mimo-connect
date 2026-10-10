@@ -15,13 +15,24 @@ import yaml from 'js-yaml'
 let pass = 0
 let fail = 0
 const check = (label, actual, expected) => {
-  const a = JSON.stringify(actual); const e = JSON.stringify(expected)
-  if (a === e) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`) }
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`)
+  }
 }
 const checkFn = (label, cond, detail = '') => {
-  if (cond) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label} ${detail}`) }
+  if (cond) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label} ${detail}`)
+  }
 }
 
 const profileDir = join(process.env.DSH_HOME, 'profiles', 'desktop')
@@ -38,24 +49,30 @@ for (const bundle of bundles) {
   if (bundle.startsWith('@deepseek-ai/')) continue // 框架自带，跳过
   const dir = join(profileDir, 'node_modules', bundle)
   const patchPath = join(dir, 'cordis.patch.yml')
-  if (!existsSync(patchPath)) { console.log(`  SKIP ${bundle}（无 patch 文件）`); continue }
+  if (!existsSync(patchPath)) {
+    console.log(`  SKIP ${bundle}（无 patch 文件）`)
+    continue
+  }
   let parsed
   try {
     parsed = yaml.load(readFileSync(patchPath, 'utf-8'))
   } catch (e) {
-    fail++; console.log(`  FAIL ${bundle} patch 解析失败: ${e.message}`); continue
+    fail++
+    console.log(`  FAIL ${bundle} patch 解析失败: ${e.message}`)
+    continue
   }
   const inserts = Array.isArray(parsed) ? parsed.flatMap(e => e?.insert ?? []) : []
   console.log(`  ${bundle}: insert ${JSON.stringify(inserts)}`)
   for (const row of inserts) {
     const mp = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'))
-    checkFn(`  ${row.name} package.json main 指向存在文件`,
-      existsSync(join(dir, mp.main)), mp.main)
+    checkFn(`  ${row.name} package.json main 指向存在文件`, existsSync(join(dir, mp.main)), mp.main)
   }
 }
 
 console.log('\n== 插件入口可被 Node 解析（真 import） ==')
-const entry = 'file:///' + join(profileDir, 'node_modules', 'dsh-mimo-connect', 'src', 'index.js').replace(/\\/g, '/')
+const entry =
+  'file:///' +
+  join(profileDir, 'node_modules', 'dsh-mimo-connect', 'src', 'index.js').replace(/\\/g, '/')
 const mod = await import(entry)
 check('插件 name', mod.name, 'llm-mimo')
 check('插件 inject', mod.inject, ['llm'])

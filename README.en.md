@@ -275,8 +275,34 @@ node tests/run.mjs layout     # layout parity only
 node tests/run.mjs cookie     # suites matching "cookie"
 ```
 
-Suites that need a real credential skip themselves when none is present. A few
-suites make real network calls when a credential is available.
+Suites report three distinct outcomes, never conflated:
+
+- **pass** — the suite ran its checks and all of them held;
+- **skip** — the suite found nothing on this machine to verify (exit code
+  `SKIP_EXIT_CODE` = 10), and is *not* counted as a pass;
+- **fail** — any other non-zero exit, or a signal.
+
+A skip does not fail the run, but it is also **not evidence**: the skipped
+suites are listed by name in the summary so that "nothing to check here" cannot
+be misread as "verified". `boot-safety` (needs a DSH profile with the plugin
+installed), `layout-parity` (needs a DSH installation), and `e2e-live` (needs a
+real MiMo credential) all take the skip path on CI — which is to say **none of
+those three is covered by CI**.
+
+After changing client code, rebuild: a CI gate requires `lib/` to match
+`src/client.js`, so committing a stale artifact fails the build.
+
+Two further checks sit alongside the tests, and are equally hard gates on CI:
+
+```sh
+npm run format:check   # formatting (Prettier: no semicolons, single quotes, 2 spaces, 100 cols)
+npm run typecheck      # JSDoc typecheck of src/ and bin/ (tsc --checkJs)
+```
+
+When formatting fails, `npm run format` fixes it in place. `lib/` is excluded via
+`.prettierignore` — it is a build product and should never be formatted by hand.
+The typecheck covers only `src/` and `bin/`: `tests/` and `tools/` lean on mocks
+and dynamically built objects, where the added noise outweighs the benefit.
 
 The rendering and layout suites need a few test-only dependencies:
 
@@ -287,9 +313,10 @@ npm i --no-save js-yaml@^4 react@18.3.1 react-dom@18.3.1 jsdom
 They are not part of the published artifact — in the DSH page the browser half
 takes React from the shell's platform module table.
 
-`tools/` holds local deployment helpers that reference a machine-specific DSH
-profile; they are not part of the published test suite. `npm run sync` builds
-first and then syncs the plugin into the desktop profile.
+`tools/` holds local deployment helpers; they are not part of the published test
+suite. They resolve the target profile from `DSH_PROFILE_DIR`, `DSH_HOME`, or
+`USERPROFILE`, so nothing is hard-coded to one machine. `npm run sync` builds
+first and then syncs the plugin into that profile.
 
 ### The browser half
 
@@ -304,26 +331,38 @@ start and `patchReload` will not re-read it.
 
 ### Why the quota readout keeps up with the host's layout
 
-The two built-in stats pills are children of one flex container,
-`[data-composer-stats]`, laid out by that container's own `display:flex;
-gap:12px` — no absolute positioning and no hand-computed offsets.
+The plugin registers its pill as an **ordinary entry** of the
+`conversation.composer.dock` slot (`id: "mimo-quota"`, `order: 10`). The host's
+own `StatsPills` registers in that same slot (`id: "stats"`, `order: 0`), so an
+entry at `order: 10` lands directly beside the stats pill. The slot's container
+is itself a flex row (`justify-content:center; align-items:center; gap:12px;
+display:flex`), which makes the pill a **real child** of it, leaving layout
+entirely to the host's own rules — no absolute positioning and no
+hand-computed offsets.
 
-This plugin cannot become a child of that container: when the host registers
-`conversation.composer.dock` it declares no `children`, so the slot registry has
-no sub-slot to contribute to. The component therefore uses `createPortal` to send
-its pill **into** `[data-composer-stats]`, making it a real child of the same
-container and leaving layout entirely to the host's own rules. The plugin
-declares only the pill's own geometry.
+The plugin declares only the pill's own geometry, matched item by item against
+the host's stats pill (`border-radius:999px`, `corner-shape:round`,
+`padding:1px 8px`, `gap:6px`, `font:inherit`, `line-height:inherit`,
+`font-variant-numeric:tabular-nums`), so the two read as one row at any font
+size or zoom.
+
+The stylesheet is rendered by the component itself as a `<style>` element
+carrying a `data-plugin-css` attribution marker, inserted on mount and removed
+on unmount. It is deliberately not written to `document.head`, because the
+host's `claimStyles` attributes every untagged `<style>` in the document to
+whichever plugin is materializing and then deletes them when that plugin
+unloads.
 
 `tests/layout-parity.mjs` extracts the host's CSS verbatim from the
 `dsh-client-ui-chat` artifacts and compares computed styles with both pills in
 one container, covering changed font size, missing variables, a narrow container,
-and a dark theme. It skips entirely (exit code 0) when no DSH install is found;
-`DSH_APP_ROOT` overrides the location.
+and a dark theme. It skips entirely (exit code 10, `SKIP_EXIT_CODE`) when no DSH
+install is found; `DSH_APP_ROOT` overrides the location.
 
-The stats row mounts and unmounts with session state, and the host may replace it
-outright, so after the first discovery the component watches for replacement with
-a `MutationObserver`.
+> Historical note: 0.2.0 and earlier took a different route — `createPortal` to
+> send the pill into `[data-composer-stats]`, plus a `MutationObserver` to watch
+> for the host replacing it. As of 0.3.0 the ordinary-slot-entry approach above
+> is used instead, and neither the portal nor the observer is needed.
 
 ## Disclaimer
 

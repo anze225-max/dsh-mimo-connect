@@ -1,15 +1,27 @@
 // 验证已安装副本能加载，并跑真实端到端。
-const inst = process.env.USERPROFILE.replace(/\\/g, '/')
-  + '/.dsh/profiles/desktop/node_modules/dsh-mimo-connect/src/'
+const inst =
+  process.env.USERPROFILE.replace(/\\/g, '/') +
+  '/.dsh/profiles/desktop/node_modules/dsh-mimo-connect/src/'
 
-let pass = 0, fail = 0
+let pass = 0,
+  fail = 0
 const check = (l, a, e) => {
-  if (JSON.stringify(a) === JSON.stringify(e)) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`) }
+  if (JSON.stringify(a) === JSON.stringify(e)) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`)
+  }
 }
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 
 console.log('=== 加载已安装副本 ===')
@@ -41,7 +53,11 @@ console.log('\n=== adapter 契约 ===')
 const cat = { current: () => FALLBACK_MIMO_MODELS, source: () => 'builtin' }
 const { adapter } = createMiMoAdapter({ catalog: cat, getSession: () => session })
 const models = await adapter.listModels('mimo')
-check('模型列表', models.map(m => m.id), ['mimo-v2.6-flash', 'mimo-v2.6-pro'])
+check(
+  '模型列表',
+  models.map(m => m.id),
+  ['mimo-v2.6-flash', 'mimo-v2.6-pro'],
+)
 check('显示名含倍率', models[0].name, 'MiMo V2.6 Flash · x0.40')
 
 console.log('\n=== 实网：pi-ai 真实调用 ===')
@@ -52,15 +68,28 @@ const liveModel = toPiModel(FALLBACK_MIMO_MODELS[0], `${MIMO_SERVER}/api/route`,
   Cookie: session.jar.headerFor(`${MIMO_SERVER}/api/route/chat/completions`),
 })
 const provider = createProvider({
-  id: 'mimo', name: 'MiMo',
-  auth: { apiKey: { name: 'x', async resolve() { return { auth: { apiKey: 'd' }, source: 'm' } } } },
-  models: [liveModel], api: openAICompletionsApi(),
+  id: 'mimo',
+  name: 'MiMo',
+  auth: {
+    apiKey: {
+      name: 'x',
+      async resolve() {
+        return { auth: { apiKey: 'd' }, source: 'm' }
+      },
+    },
+  },
+  models: [liveModel],
+  api: openAICompletionsApi(),
 })
 
 let text = ''
-for await (const e of provider.stream(liveModel, {
-  messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
-}, { apiKey: 'd' })) {
+for await (const e of provider.stream(
+  liveModel,
+  {
+    messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
+  },
+  { apiKey: 'd' },
+)) {
   if (e.type === 'text_delta') text += e.delta ?? ''
 }
 checkFn('收到真实回复', /PONG/.test(text), `got ${JSON.stringify(text)}`)

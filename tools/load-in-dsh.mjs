@@ -4,19 +4,32 @@
  * 这是「装进 DSH 后能跑」的最强证据：用宿主自己的 Context、真实注册
  * provider、真实列出模型，并跑一次真实推理。
  */
-const base = 'file:///' + process.env.USERPROFILE.replace(/\\/g, '/')
-  + '/.dsh/profiles/desktop/node_modules/dsh-mimo-connect/src/'
+const base =
+  'file:///' +
+  process.env.USERPROFILE.replace(/\\/g, '/') +
+  '/.dsh/profiles/desktop/node_modules/dsh-mimo-connect/src/'
 
 let pass = 0
 let fail = 0
 const check = (label, actual, expected) => {
-  const a = JSON.stringify(actual); const e = JSON.stringify(expected)
-  if (a === e) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label}\n       期望 ${e}\n       实际   ${a}`) }
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label}\n       期望 ${e}\n       实际   ${a}`)
+  }
 }
 const checkFn = (label, cond, detail = '') => {
-  if (cond) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label} ${detail}`) }
+  if (cond) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label} ${detail}`)
+  }
 }
 
 console.log('\n== 加载已安装的插件 ==')
@@ -55,7 +68,11 @@ const adapter = registered.get('mimo')
 checkFn('adapter 可列模型', typeof adapter?.listModels === 'function')
 if (adapter) {
   const models = await adapter.listModels('mimo')
-  check('列出内置模型', models.map(m => m.id), ['mimo-v2.6-flash', 'mimo-v2.6-pro'])
+  check(
+    '列出内置模型',
+    models.map(m => m.id),
+    ['mimo-v2.6-flash', 'mimo-v2.6-pro'],
+  )
   check('显示名含倍率', models[0].name, 'MiMo V2.6 Flash · x0.40')
   check('provider 显示名', adapter.providerInfo('mimo').name, 'MiMo')
 }
@@ -82,7 +99,9 @@ if (adapter) {
     const session = new MiMoSession({ jar: MiMoCredentialStore.jarFor(cred.credential) })
     await session.ensureSession()
     const { createProvider } = await import('@earendil-works/pi-ai')
-    const { openAICompletionsApi } = await import('@earendil-works/pi-ai/api/openai-completions.lazy')
+    const { openAICompletionsApi } = await import(
+      '@earendil-works/pi-ai/api/openai-completions.lazy'
+    )
     const { toPiModel } = await import(base + 'adapter.js')
     const { FALLBACK_MIMO_MODELS } = await import(base + 'catalog.js')
 
@@ -90,15 +109,27 @@ if (adapter) {
       Cookie: session.jar.headerFor(`${MIMO_SERVER}/api/route/chat/completions`),
     })
     const provider = createProvider({
-      id: 'mimo', name: 'MiMo',
-      auth: { apiKey: { name: 'x', async resolve() { return { auth: { apiKey: 'd' }, source: 'm' } } } },
+      id: 'mimo',
+      name: 'MiMo',
+      auth: {
+        apiKey: {
+          name: 'x',
+          async resolve() {
+            return { auth: { apiKey: 'd' }, source: 'm' }
+          },
+        },
+      },
       models: [liveModel],
       api: openAICompletionsApi(),
     })
     let text = ''
-    for await (const e of provider.stream(liveModel, {
-      messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
-    }, { apiKey: 'd' })) {
+    for await (const e of provider.stream(
+      liveModel,
+      {
+        messages: [{ role: 'user', content: 'Reply with exactly: PONG' }],
+      },
+      { apiKey: 'd' },
+    )) {
       if (e.type === 'text_delta') text += e.delta ?? ''
     }
     checkFn('真实回复正确', /PONG/.test(text), `got ${JSON.stringify(text)}`)

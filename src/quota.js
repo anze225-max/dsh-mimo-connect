@@ -22,6 +22,17 @@
 
 import { MIMO_SERVER } from './session.js'
 
+/**
+ * The session shape this reader needs. Declared structurally rather than
+ * imported, so `quota.js` keeps depending only on the two methods it calls and
+ * a session built by a test does not have to be a `MiMoSession` instance.
+ *
+ * @typedef {object} QuotaSession
+ * @property {() => Promise<unknown>} ensureSession - establishes the session.
+ * @property {(url: string, init?: object) => Promise<Response>} request -
+ *   performs one domain-scoped request.
+ */
+
 /** How long a successful reading is reused before another probe. */
 export const QUOTA_CACHE_MS = 60 * 1000
 
@@ -52,9 +63,10 @@ export function parseQuota(value) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   // The envelope carries `code`/`data`; a bare `data` object is also accepted so
   // a future gateway that drops the envelope keeps working.
-  const data = value.data !== undefined && typeof value.data === 'object' && value.data !== null
-    ? value.data
-    : value
+  const data =
+    value.data !== undefined && typeof value.data === 'object' && value.data !== null
+      ? value.data
+      : value
   const percent = data.percent
   if (typeof percent !== 'number' || !Number.isFinite(percent)) return undefined
 
@@ -81,9 +93,10 @@ export class MiMoQuotaReader {
   #inflight
 
   /**
-   * @param options.getSession - returns the current session, which may change
-   *        when the credential identity changes.
-   * @param options.fetch - fetch implementation (for tests).
+   * @param {object} [options] - the reader's dependencies.
+   * @param {() => QuotaSession} [options.getSession] - returns the current session,
+   *        which may change when the credential identity changes.
+   * @param {typeof fetch} [options.fetch] - fetch implementation (for tests).
    */
   constructor(options = {}) {
     this.#getSession = options.getSession
@@ -116,8 +129,9 @@ export class MiMoQuotaReader {
   /**
    * Read the remaining quota, using the cache when it is still fresh.
    *
-   * @param options.force - bypass a cached success.
-   * @param options.signal - abort signal from the caller.
+   * @param {object} [options] - read options.
+   * @param {boolean} [options.force] - bypass a cached success.
+   * @param {AbortSignal} [options.signal] - abort signal from the caller.
    * @returns the reading, or undefined when unavailable.
    */
   async read(options = {}) {
@@ -160,7 +174,9 @@ export class MiMoQuotaReader {
       })
       if (!response.ok) {
         // Drain so the socket is released.
-        try { await response.arrayBuffer() } catch {}
+        try {
+          await response.arrayBuffer()
+        } catch {}
         this.#failureUntilMs = Date.now() + QUOTA_FAILURE_CACHE_MS
         return undefined
       }

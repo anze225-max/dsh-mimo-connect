@@ -65,14 +65,16 @@ const BUILTIN_BY_ID = new Map(FALLBACK_MIMO_MODELS.map(entry => [entry.id, entry
  * @returns the catalog entry.
  */
 export function describeModel(id) {
-  return BUILTIN_BY_ID.get(id) ?? {
-    id,
-    name: id,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxTokens: DEFAULT_MAX_TOKENS,
-    supportsImages: true,
-    displayRatio: undefined,
-  }
+  return (
+    BUILTIN_BY_ID.get(id) ?? {
+      id,
+      name: id,
+      contextWindow: DEFAULT_CONTEXT_WINDOW,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      supportsImages: true,
+      displayRatio: undefined,
+    }
+  )
 }
 
 /**

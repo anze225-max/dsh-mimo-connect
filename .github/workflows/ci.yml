@@ -1,0 +1,116 @@
+# 持续集成：每次提交与 PR 都必须通过。
+#
+# 这个工作流存在的原因是一个真实事故：提交进仓库的 `lib/client.js` 曾经是过期产物
+# （缺 `corner-shape:round`），而当时**唯一**的工作流只在打 tag 时运行，并且先
+# `npm run build` 再 `npm test` —— 构建把过期产物覆盖掉了，失败因此被完全掩盖。
+# 结果：干净 clone 之后 `npm test` 直接变红，却直到发版都没人发现。
+#
+# 这里把它拆成两件事，分别由两道闸门守住：
+#   1. `产物新鲜度` —— build 之后 `git diff --exit-code lib/` 必须为空。提交进来的
+#      产物一旦和 `src/client.js` 不一致，这里就失败（这正是当初缺的那道闸门）。
+#   2. `测试` —— 在**不预先构建**的前提下跑全部套件，复现别人 clone 之后的真实状态。
+#
+# 打 tag 时的发布流程见 `publish-npm.yml`，与本文件互不影响。
+
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支上新的推送取消旧的运行，避免排队。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      # 闸门 1：产物必须新鲜。
+      #
+      # 这一步刻意排在依赖安装**之前**，且它自己不需要任何依赖。
+      #
+      # 原因：`package.json` 里有 `prepare`（见该文件），npm 在安装依赖时会自动
+      # 执行它，也就等于就地重建 `lib/`。如果先安装依赖，过期产物会先被悄悄修好，
+      # 这道闸门就永远看不到问题 —— 那正是当初的失败模式（先 build 再 test）。
+      # 所以必须在任何可能触碰 `lib/` 的步骤之前、用刚 checkout 的原始状态来检查。
+      #
+      # 先构建，再要求工作区没有任何改动。提交进来的 `lib/client.js` 若与
+      # `src/client.js` 不一致，重新构建就会产生 diff，这一步随即失败并打印差异。
+      # 修复方式就是把 `npm run build` 的结果一并提交。
+      - name: 产物新鲜度（lib/ 必须与 src/client.js 一致）
+        run: |
+          npm run build
+          if ! git diff --exit-code -- lib/; then
+            echo "::error::提交的 lib/ 与 src/client.js 不一致。请在本机运行 npm run build 并提交结果。"
+            exit 1
+          fi
+          echo "lib/ 与源码一致。"
+
+      # 测试依赖只服务测试，不进发布产物。版本与 `publish-npm.yml` 保持一致，
+      # 让「发版时跑的东西」与「每次提交跑的东西」是同一套。
+      #
+      # `--ignore-scripts` 是有意的：这些包只被 require，不需要它们的构建脚本，
+      # 而跳过脚本同时也避免了把任意 postinstall 带进 CI。它同样会跳过本包的
+      # `prepare`，但此时产物已由上一道闸门校验过，不再需要重建。
+      - name: 安装测试依赖
+        run: |
+          npm i --no-save --no-audit --no-fund --ignore-scripts semver@7.8.5 \
+            @deepseek-ai/dsh-llm@0.2.0-rc.2 \
+            @deepseek-ai/dsh-llm-pi-ai@0.2.0-rc.2 \
+            @deepseek-ai/dsh-attachment@0.2.0-rc.2 \
+            @deepseek-ai/dsh-home-paths@0.2.0-rc.2 \
+            @deepseek-ai/schemastery@3.18.4 \
+            @deepseek-ai/cordis@4.0.4 \
+            @earendil-works/pi-ai@0.87.1 \
+            js-yaml@4.1.0 jsdom@26.0.0 react@18.3.1 react-dom@18.3.1 \
+            prettier@3.6.2 typescript@5.9.3 @types/node@24.9.2
+
+      - name: 语法自检
+        run: |
+          for f in src/*.js bin/cli.js tools/*.mjs tests/*.mjs; do
+            node --check "$f"
+          done
+
+      # 格式闸门：与 `.prettierrc.json` 声明的风格保持一致（无分号、单引号、
+      # 2 空格、100 列）。它只检查、不修改 —— CI 从不改工作区，失败时由开发者
+      # 在本机运行 `npm run format`。
+      #
+      # `lib/` 在 `.prettierignore` 里被排除：它是 `src/client.js` 的构建产物，
+      # 由上一道闸门保证一致，再格式一遍只会产生构建会立即撤销的 diff。
+      - name: 格式检查
+        run: npm run format:check
+
+      # 类型闸门：对 `src/` 与 `bin/` 做 JSDoc 类型检查（`checkJs`，不产出文件）。
+      # 本仓的 JSDoc 覆盖本来就完整，这条命令把它变成可执行的约束。
+      #
+      # 覆盖范围刻意只到 `src/` 与 `bin/`（见 tsconfig.json 的 `include`）：
+      # `tests/` 与 `tools/` 大量使用 mock 与动态构造，类型收益低而噪声高。
+      - name: 类型检查
+        run: npm run typecheck
+
+      # 闸门 2：测试。
+      #
+      # 跑的就是上一道闸门校验过的那份产物。run.mjs 会把「通过」与「跳过」分开
+      # 报告，于是「本机没有可验证对象」不会再伪装成一次通过。
+      - name: 跑测试套件
+        run: npm test
+
+      # 用当前运行时版本做闸门自检，保证官方 @deepseek-ai/dsh-* 的 peer 范围
+      # 确实覆盖它 —— 与发版流程用同一条命令。
+      - name: 校验 peer 范围
+        run: node tools/check-compat.mjs package.json 0.2.0-rc.2

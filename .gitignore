@@ -7,6 +7,13 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# A workspace-local npm cache (set via npm_config_cache) must never be committed.
+# It holds hundreds of content-addressed blobs and only ever causes noise.
+.npm-cache/
+
+# Scratch directories the regression probe creates while running.
+tests/_variant-*/
+
 # 注意：lib/ 必须提交，不要加进忽略列表。
 # 宿主从 package.json 的 exports["./client"] 直接读取 lib/client.js，
 # 安装后没有构建步骤，缺了它 DSH 激活阶段会直接报错。

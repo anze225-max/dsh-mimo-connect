@@ -18,23 +18,69 @@ import { createRequire } from 'node:module'
 let pass = 0
 let fail = 0
 const check = (l, a, e) => {
-  const x = JSON.stringify(a); const y = JSON.stringify(e)
-  if (x === y) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l}\n       期望 ${y}\n       实际 ${x}`) }
+  const x = JSON.stringify(a)
+  const y = JSON.stringify(e)
+  if (x === y) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l}\n       期望 ${y}\n       实际 ${x}`)
+  }
 }
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 
 const root = join(import.meta.dirname, '..')
-const APP = 'D:\\DSH\\DSH Desktop\\resources\\app\\node_modules'
+
+/**
+ * Locate a DSH installation's `node_modules`, for the one check below that needs
+ * the host's real `dsh-web-app` manifest.
+ *
+ * `DSH_APP_ROOT` is the explicit override and wins when set — the same variable
+ * `layout-parity.mjs` honours, so one value points both suites at a DSH install.
+ * Otherwise the common install locations are tried. Nothing here is required for
+ * the rest of the suite, so a miss only skips that one section.
+ *
+ * @returns {string|undefined} a `node_modules` path, or undefined.
+ */
+function findAppRoot() {
+  const override = process.env.DSH_APP_ROOT
+  if (override !== undefined && override.length > 0) {
+    return override.endsWith('node_modules') ? override : join(override, 'node_modules')
+  }
+  const candidates = [
+    join(root, 'node_modules'),
+    join(
+      process.env.LOCALAPPDATA ?? '',
+      'Programs',
+      'DSH Desktop',
+      'resources',
+      'app',
+      'node_modules',
+    ),
+    '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules',
+  ]
+  return candidates.find(p => p.length > 0 && existsSync(join(p, '@deepseek-ai', 'dsh-web-app')))
+}
+
+const APP = findAppRoot()
 
 console.log('\n== package.json 的 dsh.client 声明 ==')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'))
 const decl = pkg.dsh?.client
 check('platform', decl?.platform, 'web')
-checkFn('inject 是字符串数组', Array.isArray(decl?.inject) && decl.inject.every(s => typeof s === 'string'))
+checkFn(
+  'inject 是字符串数组',
+  Array.isArray(decl?.inject) && decl.inject.every(s => typeof s === 'string'),
+)
 checkFn('未声明 immediately', decl?.immediately === undefined)
 
 const clientExport = pkg.exports?.['./client']
@@ -43,13 +89,17 @@ checkFn('exports["./client"] 可解析', typeof rel === 'string', JSON.stringify
 checkFn('bundle 存在', existsSync(join(root, rel)), join(root, rel ?? ''))
 
 console.log('\n== inject 的包必须在 web-app 里加载 ==')
-const webAppPath = join(APP, '@deepseek-ai/dsh-web-app/package.json')
-if (existsSync(webAppPath)) {
+const webAppPath =
+  APP === undefined ? undefined : join(APP, '@deepseek-ai/dsh-web-app/package.json')
+if (webAppPath !== undefined && existsSync(webAppPath)) {
   const webApp = JSON.parse(readFileSync(webAppPath, 'utf-8'))
-  const available = new Set([...Object.keys(webApp.dependencies ?? {}), ...Object.keys(webApp.peerDependencies ?? {})])
+  const available = new Set([
+    ...Object.keys(webApp.dependencies ?? {}),
+    ...Object.keys(webApp.peerDependencies ?? {}),
+  ])
   for (const dep of decl?.inject ?? []) checkFn(`${dep} 在 dsh-web-app 依赖中`, available.has(dep))
 } else {
-  console.log('  SKIP 未找到 dsh-web-app（非 DSH 环境）')
+  console.log('  SKIP 未找到 dsh-web-app（非 DSH 环境；可用 DSH_APP_ROOT 指定）')
 }
 
 console.log('\n== bundle 只需平台基座 ==')
@@ -57,12 +107,18 @@ const bundlePath = join(root, rel)
 if (existsSync(bundlePath)) {
   const bundle = readFileSync(bundlePath, 'utf-8')
   checkFn('使用 __ModuleLoader__.load', bundle.includes('__ModuleLoader__.load'))
-  const required = [...new Set([...bundle.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)].map(m => m[1]))]
+  const required = [
+    ...new Set([...bundle.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)].map(m => m[1])),
+  ]
   const SEED = new Set(['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'])
   const externals = new Set(decl?.external ?? [])
   console.log(`       require: ${required.join(', ') || '(无)'}`)
   for (const spec of required) {
-    checkFn(`${spec} 可由基座解析`, SEED.has(spec) || externals.has(spec), '需加入 dsh.client.external')
+    checkFn(
+      `${spec} 可由基座解析`,
+      SEED.has(spec) || externals.has(spec),
+      '需加入 dsh.client.external',
+    )
   }
   checkFn('注册到 composer.dock', bundle.includes('conversation.composer.dock'))
   checkFn('用 modelDirectories 判定 provider', bundle.includes('modelDirectories'))
@@ -89,17 +145,20 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
   }
 
   if (JSDOM !== undefined && existsSync(bundlePath)) {
-    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { pretendToBeVisual: true })
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+      pretendToBeVisual: true,
+    })
     globalThis.window = dom.window
     globalThis.document = dom.window.document
     globalThis.HTMLElement = dom.window.HTMLElement
     globalThis.Node = dom.window.Node
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     // 组件轮询统计行是否挂载，需要 rAF；jsdom 的 window 有，挂到全局。
-    globalThis.requestAnimationFrame = dom.window.requestAnimationFrame?.bind(dom.window)
-      ?? ((cb) => setTimeout(() => cb(Date.now()), 0))
-    globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame?.bind(dom.window)
-      ?? ((id) => clearTimeout(id))
+    globalThis.requestAnimationFrame =
+      dom.window.requestAnimationFrame?.bind(dom.window) ??
+      (cb => setTimeout(() => cb(Date.now()), 0))
+    globalThis.cancelAnimationFrame =
+      dom.window.cancelAnimationFrame?.bind(dom.window) ?? (id => clearTimeout(id))
     // 浏览器里 MutationObserver 是全局，jsdom 只在 window 上；两者都覆盖。
     globalThis.MutationObserver = dom.window.MutationObserver
 
@@ -110,16 +169,20 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       return { ok: true, json: async () => payload }
     }
 
-    globalThis.window.__ModuleLoader__ = { load(spec) { globalThis.__factory = spec.factory } }
+    globalThis.window.__ModuleLoader__ = {
+      load(spec) {
+        globalThis.__factory = spec.factory
+      },
+    }
     // 平台基座表的精确副本（见 dsh-web-frontend 的 seed 表）。
     const platform = {
-      'react': React,
+      react: React,
       'react/jsx-runtime': require('react/jsx-runtime'),
       'react-dom': require('react-dom'),
       'react-dom/client': ReactDOMClient,
     }
     new Function(readFileSync(bundlePath, 'utf-8'))()
-    const mod = globalThis.__factory((s) => {
+    const mod = globalThis.__factory(s => {
       if (s in platform) return platform[s]
       throw new Error(`unknown module: ${s}`)
     })
@@ -128,12 +191,20 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
     function registerWith(provider) {
       const captured = {}
       mod.apply({
-        effect(fn) { fn() },
+        effect(fn) {
+          fn()
+        },
         inject(_deps, fn) {
           fn({
             slots: {
-              inject(_n, fn2) { fn2() },
-              register(d, C) { captured.decl = d; captured.Component = C; return () => {} },
+              inject(_n, fn2) {
+                fn2()
+              },
+              register(d, C) {
+                captured.decl = d
+                captured.Component = C
+                return () => {}
+              },
             },
             modelDirectories: {
               directoryFor: () => ({
@@ -175,10 +246,16 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       document.body.appendChild(host)
       const r = ReactDOMClient.createRoot(host)
       const { act } = React
-      await act(async () => { r.render(React.createElement(Component, { ...props, t })) })
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+      await act(async () => {
+        r.render(React.createElement(Component, { ...props, t }))
+      })
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 30))
+      })
       const html = host.innerHTML
-      await act(async () => { r.unmount() })
+      await act(async () => {
+        r.unmount()
+      })
       host.remove()
       return html
     }
@@ -192,13 +269,19 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       document.body.appendChild(host0)
       const root0 = ReactDOMClient.createRoot(host0)
       const { act } = React
-      await act(async () => { root0.render(React.createElement(C0, { ...p0, t })) })
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+      await act(async () => {
+        root0.render(React.createElement(C0, { ...p0, t }))
+      })
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 30))
+      })
       const injected = host0.querySelector('style[data-plugin-css]')
       checkFn('注入了样式', injected !== null)
       checkFn('样式归属本插件', (injected?.dataset.pluginCss ?? '').startsWith('dsh-mimo-connect/'))
       cssText = injected?.textContent ?? ''
-      await act(async () => { root0.unmount() })
+      await act(async () => {
+        root0.unmount()
+      })
       host0.remove()
     }
 
@@ -240,7 +323,11 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       checkFn('不再用绝对定位', !cssText.includes('position:absolute'), cssText.slice(0, 120))
       checkFn('不再手算行高偏移', !/top:\s*-?\d+px/.test(cssText), cssText.slice(0, 120))
       checkFn('不再用负 margin', !cssText.includes('margin:-'), cssText.slice(0, 120))
-      checkFn('anchor 用 inline-flex', cssText.includes('.mimoq_anchor{min-width:0;display:inline-flex}'), cssText.slice(0, 120))
+      checkFn(
+        'anchor 用 inline-flex',
+        cssText.includes('.mimoq_anchor{min-width:0;display:inline-flex}'),
+        cssText.slice(0, 120),
+      )
 
       // pill 几何逐项对齐宿主统计行的 pill（0.2.0-rc.2 起为全圆角 + corner-shape）。
       checkFn('pill 全圆角 999px', pill.includes('border-radius:999px'), pill)
@@ -253,7 +340,11 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
 
       // 悬停高亮：与宿主统计行 pill 同一组变量。
       const hover = cssText.match(/\.mimoq_pill:hover\{([^}]*)\}/)?.[1] ?? ''
-      checkFn('悬停背景同统计行', hover.includes('background:var(--dsw-alias-interactive-bg-hover)'), hover)
+      checkFn(
+        '悬停背景同统计行',
+        hover.includes('background:var(--dsw-alias-interactive-bg-hover)'),
+        hover,
+      )
       checkFn('悬停文字色同统计行', hover.includes('color:var(--dsw-alias-label-secondary)'), hover)
     }
 
@@ -266,15 +357,30 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       document.body.appendChild(host)
       const root = ReactDOMClient.createRoot(host)
       const { act } = React
-      await act(async () => { root.render(React.createElement(Component, { ...props, t })) })
+      await act(async () => {
+        root.render(React.createElement(Component, { ...props, t }))
+      })
 
-      checkFn('pill 渲染在自己的容器里', host.querySelector('[data-mimo-quota]') !== null, host.innerHTML.slice(0, 160))
-      checkFn('pill 的父节点就是组件容器', host.querySelector('[data-mimo-quota]')?.parentElement === host)
+      checkFn(
+        'pill 渲染在自己的容器里',
+        host.querySelector('[data-mimo-quota]') !== null,
+        host.innerHTML.slice(0, 160),
+      )
+      checkFn(
+        'pill 的父节点就是组件容器',
+        host.querySelector('[data-mimo-quota]')?.parentElement === host,
+      )
       checkFn('pill 自身带 anchor 类', host.querySelector('.mimoq_anchor') !== null)
       // 样式随组件渲染，而不是塞进 document.head。
-      checkFn('样式由组件渲染', host.querySelector('style[data-plugin-css]') !== null, host.innerHTML.slice(0, 120))
+      checkFn(
+        '样式由组件渲染',
+        host.querySelector('style[data-plugin-css]') !== null,
+        host.innerHTML.slice(0, 120),
+      )
 
-      await act(async () => { root.unmount() })
+      await act(async () => {
+        root.unmount()
+      })
       checkFn('卸载后 pill 被移除', host.querySelector('[data-mimo-quota]') === null)
       checkFn('卸载后样式也被移除', host.querySelector('style[data-plugin-css]') === null)
 
@@ -292,12 +398,18 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       const root = ReactDOMClient.createRoot(host)
 
       let mutations = 0
-      const watcher = new MutationObserver(() => { mutations++ })
+      const watcher = new MutationObserver(() => {
+        mutations++
+      })
       watcher.observe(document.body, { childList: true, subtree: true })
 
       fetchCalls = 0
-      await act(async () => { root.render(React.createElement(Component, { ...props, t })) })
-      await act(async () => { await new Promise(r => setTimeout(r, 100)) })
+      await act(async () => {
+        root.render(React.createElement(Component, { ...props, t }))
+      })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 100))
+      })
 
       check('非 MiMo 不请求额度接口', fetchCalls, 0)
       checkFn('非 MiMo 不产生 DOM', host.innerHTML === '', host.innerHTML.slice(0, 100))
@@ -305,7 +417,9 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       checkFn('非 MiMo 不启动轮询（无持续 DOM 变更）', mutations === 0, String(mutations))
 
       watcher.disconnect()
-      await act(async () => { root.unmount() })
+      await act(async () => {
+        root.unmount()
+      })
       host.remove()
 
       // 切到 MiMo 再切回来：应干净地出现又消失。
@@ -313,15 +427,28 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       const listeners = new Set()
       let cap
       mod.apply({
-        effect(fn) { fn() },
+        effect(fn) {
+          fn()
+        },
         inject(_x, fn) {
           fn({
-            slots: { inject(_n, f) { f() }, register(dd, CC) { cap = { d: dd, C: CC }; return () => {} } },
+            slots: {
+              inject(_n, f) {
+                f()
+              },
+              register(dd, CC) {
+                cap = { d: dd, C: CC }
+                return () => {}
+              },
+            },
             modelDirectories: {
               directoryFor: () => ({
                 store: {
                   getSnapshot: () => ({ current: { provider } }),
-                  subscribe: (fn2) => { listeners.add(fn2); return () => listeners.delete(fn2) },
+                  subscribe: fn2 => {
+                    listeners.add(fn2)
+                    return () => listeners.delete(fn2)
+                  },
                 },
               }),
             },
@@ -334,21 +461,47 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       document.body.appendChild(h2)
       const r2 = ReactDOMClient.createRoot(h2)
       const props2 = cap.d.inject('session-1')
-      await act(async () => { r2.render(React.createElement(cap.C, { ...props2, t })) })
-      await act(async () => { await new Promise(r => setTimeout(r, 40)) })
-      checkFn('deepseek 时无内容', h2.querySelector('[data-mimo-quota]') === null, h2.innerHTML.slice(0, 100))
+      await act(async () => {
+        r2.render(React.createElement(cap.C, { ...props2, t }))
+      })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 40))
+      })
+      checkFn(
+        'deepseek 时无内容',
+        h2.querySelector('[data-mimo-quota]') === null,
+        h2.innerHTML.slice(0, 100),
+      )
 
       provider = 'mimo'
-      await act(async () => { for (const fn of listeners) fn() })
-      await act(async () => { await new Promise(r => setTimeout(r, 60)) })
-      checkFn('切到 MiMo 后出现', h2.querySelector('[data-mimo-quota]') !== null, h2.innerHTML.slice(0, 100))
+      await act(async () => {
+        for (const fn of listeners) fn()
+      })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 60))
+      })
+      checkFn(
+        '切到 MiMo 后出现',
+        h2.querySelector('[data-mimo-quota]') !== null,
+        h2.innerHTML.slice(0, 100),
+      )
 
       provider = 'deepseek'
-      await act(async () => { for (const fn of listeners) fn() })
-      await act(async () => { await new Promise(r => setTimeout(r, 60)) })
-      checkFn('切回 deepseek 后消失', h2.querySelector('[data-mimo-quota]') === null, h2.innerHTML.slice(0, 100))
+      await act(async () => {
+        for (const fn of listeners) fn()
+      })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 60))
+      })
+      checkFn(
+        '切回 deepseek 后消失',
+        h2.querySelector('[data-mimo-quota]') === null,
+        h2.innerHTML.slice(0, 100),
+      )
 
-      await act(async () => { r2.unmount() })
+      await act(async () => {
+        r2.unmount()
+      })
       h2.remove()
     }
 
@@ -363,12 +516,25 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       const root = ReactDOMClient.createRoot(host)
       const { act } = React
 
-      checkFn('文档里没有任何统计行', document.querySelectorAll('[data-composer-stats]').length === 0)
-      await act(async () => { root.render(React.createElement(Component, { ...props, t })) })
-      await act(async () => { await new Promise(r => setTimeout(r, 30)) })
-      checkFn('无统计行时依然渲染（空会话也能看到额度）', host.querySelector('[data-mimo-quota]') !== null, host.innerHTML.slice(0, 140))
+      checkFn(
+        '文档里没有任何统计行',
+        document.querySelectorAll('[data-composer-stats]').length === 0,
+      )
+      await act(async () => {
+        root.render(React.createElement(Component, { ...props, t }))
+      })
+      await act(async () => {
+        await new Promise(r => setTimeout(r, 30))
+      })
+      checkFn(
+        '无统计行时依然渲染（空会话也能看到额度）',
+        host.querySelector('[data-mimo-quota]') !== null,
+        host.innerHTML.slice(0, 140),
+      )
 
-      await act(async () => { root.unmount() })
+      await act(async () => {
+        root.unmount()
+      })
       host.remove()
     }
 
@@ -383,11 +549,20 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
         const host = document.createElement('div')
         document.body.appendChild(host)
         const root = ReactDOMClient.createRoot(host)
-        await act(async () => { root.render(React.createElement(Component, { ...props, t })) })
-        await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+        await act(async () => {
+          root.render(React.createElement(Component, { ...props, t }))
+        })
+        await act(async () => {
+          await new Promise(r => setTimeout(r, 30))
+        })
         return {
           host,
-          unmount: async () => { await act(async () => { root.unmount() }); host.remove() },
+          unmount: async () => {
+            await act(async () => {
+              root.unmount()
+            })
+            host.remove()
+          },
         }
       }
 
@@ -397,7 +572,8 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
         try {
           for (let i = 0; i < 3; i++) {
             const m = await mountOnce()
-            if (m.host.querySelector('[data-mimo-quota]') === null) throw new Error(`第 ${i + 1} 次挂载没渲染`)
+            if (m.host.querySelector('[data-mimo-quota]') === null)
+              throw new Error(`第 ${i + 1} 次挂载没渲染`)
             await m.unmount()
           }
         } catch (error) {
@@ -413,9 +589,13 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
         m.host.remove()
         let threw
         try {
-          await act(async () => { m.host.remove() })
+          await act(async () => {
+            m.host.remove()
+          })
           await m.unmount()
-        } catch (e) { threw = e }
+        } catch (e) {
+          threw = e
+        }
         checkFn('容器被摘除后卸载不抛错', threw === undefined, threw?.message)
       }
 
@@ -423,7 +603,11 @@ console.log('\n== 真实渲染：只在选中 MiMo 时显示 ==')
       {
         payload = { available: false }
         const m = await mountOnce()
-        checkFn('上游不可用时渲染为空', m.host.querySelector('[data-mimo-quota]') === null, m.host.innerHTML.slice(0, 120))
+        checkFn(
+          '上游不可用时渲染为空',
+          m.host.querySelector('[data-mimo-quota]') === null,
+          m.host.innerHTML.slice(0, 120),
+        )
         await m.unmount()
         payload = { available: true, percent: 99.8, resetDate: '2026-09-30' }
       }

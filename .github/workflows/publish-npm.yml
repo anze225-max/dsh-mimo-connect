@@ -88,14 +88,27 @@ jobs:
 
       - name: 语法自检
         run: |
-          for f in src/index.js src/adapter.js src/client.js src/catalog.js \
-                   src/session.js src/credential.js src/cookie-jar.js \
-                   src/quota.js src/upstream.js bin/cli.js; do
+          for f in src/*.js bin/cli.js tools/*.mjs tests/*.mjs; do
             node --check "$f"
           done
 
       - name: 生成浏览器半侧产物
         run: npm run build
+
+      # 发布前的产物新鲜度闸门：`lib/client.js` 若与 `src/client.js` 不一致，
+      # 说明有人改了源码却没提交重建结果 —— 这正是曾经发生过的事故
+      # （提交进仓库的 bundle 缺 `corner-shape:round`）。
+      #
+      # 注意顺序：必须在 `npm run build` **之后**检查。早先的流程是先 build 再
+      # test，构建把过期产物覆盖掉了，于是问题永远暴露不出来。现在构建完成后
+      # 立即要求工作区无改动，过期产物当场失败。
+      - name: 产物新鲜度（lib/ 必须与 src/client.js 一致）
+        run: |
+          if ! git diff --exit-code -- lib/; then
+            echo "::error::提交的 lib/ 与 src/client.js 不一致。请在本机运行 npm run build 并提交结果。"
+            exit 1
+          fi
+          echo "lib/ 与源码一致。"
 
       - name: 跑测试套件
         run: npm test

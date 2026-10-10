@@ -29,7 +29,10 @@ const CLEARED = /^(EXPIRED)?$/
  * @returns the normalized domain.
  */
 function normalizeDomain(domain) {
-  return String(domain ?? '').trim().toLowerCase().replace(/^\./, '')
+  return String(domain ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\./, '')
 }
 
 /**
@@ -167,7 +170,9 @@ export class CookieJar {
   absorb(headers, host) {
     const lines = Array.isArray(headers)
       ? headers
-      : (typeof headers?.getSetCookie === 'function' ? headers.getSetCookie() : [])
+      : typeof headers?.getSetCookie === 'function'
+        ? headers.getSetCookie()
+        : []
     for (const line of lines) {
       const parsed = parseSetCookie(line, host)
       if (parsed === undefined) continue
@@ -205,6 +210,8 @@ export class CookieJar {
 
   /** Non-secret summary for logs: `domain: [names]`. */
   describe() {
-    return this.domains().map(d => `${d}: [${this.namesFor(d).join(', ')}]`).join(' | ')
+    return this.domains()
+      .map(d => `${d}: [${this.namesFor(d).join(', ')}]`)
+      .join(' | ')
   }
 }

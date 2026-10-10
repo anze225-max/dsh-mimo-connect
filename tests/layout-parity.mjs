@@ -20,6 +20,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+import { SKIP_EXIT_CODE } from './exit-codes.mjs'
 
 const root = join(import.meta.dirname, '..')
 const bundlePath = join(root, 'lib', 'client.js')
@@ -39,12 +40,27 @@ function findChatBundle() {
   if (override !== undefined && override.length > 0) {
     bases.push(override.endsWith('node_modules') ? override : join(override, 'node_modules'))
   } else {
+    // A DSH profile keeps its own node_modules, and a DSH install keeps the
+    // host bundles beside the app. Both are checked, since either can be the one
+    // that carries `dsh-client-ui-chat` depending on how DSH was installed.
+    if (process.env.DSH_PROFILE_DIR) {
+      bases.push(join(process.env.DSH_PROFILE_DIR, 'node_modules'))
+    }
     if (process.env.DSH_HOME) {
-      bases.push(join(process.env.DSH_HOME, '..', 'DSH Desktop', 'resources', 'app', 'node_modules'))
+      bases.push(
+        join(process.env.DSH_HOME, '..', 'DSH Desktop', 'resources', 'app', 'node_modules'),
+      )
+      bases.push(join(process.env.DSH_HOME, 'profiles', 'desktop', 'node_modules'))
     }
     bases.push(
-      'D:\\DSH\\DSH Desktop\\resources\\app\\node_modules',
-      join(process.env.LOCALAPPDATA ?? '', 'Programs', 'DSH Desktop', 'resources', 'app', 'node_modules'),
+      join(
+        process.env.LOCALAPPDATA ?? '',
+        'Programs',
+        'DSH Desktop',
+        'resources',
+        'app',
+        'node_modules',
+      ),
       '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules',
     )
   }
@@ -60,9 +76,11 @@ const CHAT = findChatBundle()
 if (CHAT === undefined || !existsSync(bundlePath)) {
   console.log('\n== 排版对照 ==')
   console.log(`  SKIP 未找到 DSH 安装目录或客户端 bundle`)
-  console.log(`       bundle: ${bundlePath} (${existsSync(bundlePath) ? '存在' : '缺失，请先 npm run build'}）`)
+  console.log(
+    `       bundle: ${bundlePath} (${existsSync(bundlePath) ? '存在' : '缺失，请先 npm run build'}）`,
+  )
   console.log('       设置 DSH_APP_ROOT 可指定 DSH 安装位置的 node_modules 目录')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 
 let jsdomModule
@@ -81,20 +99,31 @@ try {
   console.log('\n== 排版对照 ==')
   console.log(`  SKIP 渲染依赖未安装（${error.message.split('\n')[0]}）`)
   console.log('       安装：npm i --no-save jsdom react@18.3.1 react-dom@18.3.1')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 const { JSDOM } = jsdomModule
 
 let pass = 0
 let fail = 0
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 const check = (l, a, e) => {
-  const x = JSON.stringify(a); const y = JSON.stringify(e)
-  if (x === y) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l}\n       期望 ${y}\n       实际 ${x}`) }
+  const x = JSON.stringify(a)
+  const y = JSON.stringify(e)
+  if (x === y) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l}\n       期望 ${y}\n       实际 ${x}`)
+  }
 }
 
 // 从 ui-chat 产物里逐字取出 StatsPills 的 CSS。
@@ -139,7 +168,9 @@ console.log(`   来源: ${CHAT}`)
  * @returns jsdom 实例。
  */
 function makeDom(vars = {}) {
-  const lines = Object.entries(vars).map(([k, v]) => `${k}:${v};`).join('')
+  const lines = Object.entries(vars)
+    .map(([k, v]) => `${k}:${v};`)
+    .join('')
   const dom = new JSDOM(
     `<!doctype html><html><head><style>:root{${lines}}</style></head><body></body></html>`,
     { pretendToBeVisual: true },
@@ -162,26 +193,33 @@ async function compare(dom) {
   globalThis.HTMLElement = dom.window.HTMLElement
   globalThis.Node = dom.window.Node
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
-  globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0)
-  globalThis.cancelAnimationFrame = (id) => clearTimeout(id)
+  globalThis.requestAnimationFrame = cb => setTimeout(() => cb(Date.now()), 0)
+  globalThis.cancelAnimationFrame = id => clearTimeout(id)
 
   // 注入宿主样式 + 插件样式。
   const hostStyle = dom.window.document.createElement('style')
   hostStyle.textContent = `.${HOST_ROOT_CLASS}{${HOST_CSS}`
   dom.window.document.head.appendChild(hostStyle)
 
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ available: true, percent: 99.8, resetDate: '2026-09-30' }) })
-  globalThis.window.__ModuleLoader__ = { load(spec) { globalThis.__factory = spec.factory } }
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ available: true, percent: 99.8, resetDate: '2026-09-30' }),
+  })
+  globalThis.window.__ModuleLoader__ = {
+    load(spec) {
+      globalThis.__factory = spec.factory
+    },
+  }
 
   // bundle 每次都要在新 DOM 里重新物化（它自己注入样式并查询 document）。
   new Function(readFileSync(bundlePath, 'utf-8'))()
   const platform = {
-    'react': React,
+    react: React,
     'react/jsx-runtime': jsxRuntime,
     'react-dom': reactDom,
     'react-dom/client': ReactDOMClient,
   }
-  const mod = globalThis.__factory((s) => {
+  const mod = globalThis.__factory(s => {
     if (s in platform) return platform[s]
     throw new Error(`unknown module: ${s}`)
   })
@@ -207,12 +245,27 @@ async function compare(dom) {
   // 再挂载我的组件，作为同一 dock 行的普通条目。
   let captured
   mod.apply({
-    effect(fn) { fn() },
+    effect(fn) {
+      fn()
+    },
     inject(_d, fn) {
       fn({
-        slots: { inject(_n, f) { f() }, register(d, C) { captured = { d, C }; return () => {} } },
+        slots: {
+          inject(_n, f) {
+            f()
+          },
+          register(d, C) {
+            captured = { d, C }
+            return () => {}
+          },
+        },
         modelDirectories: {
-          directoryFor: () => ({ store: { getSnapshot: () => ({ current: { provider: 'mimo' } }), subscribe: () => () => {} } }),
+          directoryFor: () => ({
+            store: {
+              getSnapshot: () => ({ current: { provider: 'mimo' } }),
+              subscribe: () => () => {},
+            },
+          }),
         },
       })
     },
@@ -226,9 +279,18 @@ async function compare(dom) {
   const root_ = ReactDOMClient.createRoot(host)
   const { act } = React
   const props = captured.d.inject('session-1')
-  const t = (k, p) => (k === 'quota.label' ? `MiMo 剩余 ${p.percent}%` : k === 'quota.title' ? `MiMo 桌面端免费额度剩余 ${p.percent}%` : `重置于 ${p.date}`)
-  await act(async () => { root_.render(React.createElement(captured.C, { ...props, t })) })
-  await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+  const t = (k, p) =>
+    k === 'quota.label'
+      ? `MiMo 剩余 ${p.percent}%`
+      : k === 'quota.title'
+        ? `MiMo 桌面端免费额度剩余 ${p.percent}%`
+        : `重置于 ${p.date}`
+  await act(async () => {
+    root_.render(React.createElement(captured.C, { ...props, t }))
+  })
+  await act(async () => {
+    await new Promise(r => setTimeout(r, 30))
+  })
 
   const minePill = host.querySelector('.mimoq_pill')
   const mineAnchor = host.querySelector('.mimoq_anchor')
@@ -256,12 +318,33 @@ async function compare(dom) {
    * 那里能真正校验变量名。
    */
   const PILL_KEYS = [
-    'border-radius', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-    'gap', 'font-size', 'line-height', 'font-family', 'display', 'box-sizing',
-    'font-variant-numeric', 'white-space', 'text-overflow', 'overflow',
+    'border-radius',
+    'padding-top',
+    'padding-right',
+    'padding-bottom',
+    'padding-left',
+    'gap',
+    'font-size',
+    'line-height',
+    'font-family',
+    'display',
+    'box-sizing',
+    'font-variant-numeric',
+    'white-space',
+    'text-overflow',
+    'overflow',
   ]
   const ANCHOR_KEYS = ['display', 'min-width']
-  const ROW_KEYS = ['display', 'justify-content', 'gap', 'width', 'padding-top', 'padding-left', 'font-size', 'line-height']
+  const ROW_KEYS = [
+    'display',
+    'justify-content',
+    'gap',
+    'width',
+    'padding-top',
+    'padding-left',
+    'font-size',
+    'line-height',
+  ]
 
   const result = {
     // 宿主无数据态用 <span>，与插件同元素类型 —— 这是唯一干净的对照组。
@@ -282,13 +365,16 @@ async function compare(dom) {
     hostTag: hostSpanPill?.tagName,
     // 先把样式表文本抓出来再关窗口，调用方就不必碰已 close 的 DOM。
     cssText: [...dom.window.document.querySelectorAll('style[data-plugin-css]')]
-      .map(s => s.textContent).join('\n'),
+      .map(s => s.textContent)
+      .join('\n'),
   }
 
   // 收尾：卸载 React、关掉 jsdom 的定时器与事件循环。
   // 不做这一步，组件挂的 MutationObserver 和 jsdom 的 rAF 会让进程不退出，
   // 工具就会在跑完所有用例后卡住。
-  await act(async () => { root_.unmount() })
+  await act(async () => {
+    root_.unmount()
+  })
   host.remove()
   dom.window.close()
 
@@ -315,8 +401,11 @@ console.log('\n== 1. 默认主题下逐项比对 ==')
   console.log('       我的 pill :', JSON.stringify(r.mine))
 
   const diffs = Object.keys(r.host).filter(k => r.host[k] !== r.mine[k])
-  checkFn('pill 计算样式与宿主逐项一致', diffs.length === 0,
-    diffs.map(k => `${k}: 宿主=${r.host[k]} 我的=${r.mine[k]}`).join(' | '))
+  checkFn(
+    'pill 计算样式与宿主逐项一致',
+    diffs.length === 0,
+    diffs.map(k => `${k}: 宿主=${r.host[k]} 我的=${r.mine[k]}`).join(' | '),
+  )
 
   // 元素类型：宿主无数据态也是 <span>，两者同型；有数据态才换成 <button>。
   check('我的 pill 是 span（与宿主展示态同型）', r.mineTag, 'SPAN')
@@ -324,12 +413,18 @@ console.log('\n== 1. 默认主题下逐项比对 ==')
 
   // 有数据态的 <button> 只应多出「可点」，几何度量必须一致。
   const buttonDiffs = Object.keys(r.host).filter(k => r.hostButton[k] !== r.host[k])
-  checkFn('宿主 button 与 span 几何度量一致（差异仅来自 UA）', buttonDiffs.length === 0,
-    buttonDiffs.map(k => `${k}: span=${r.host[k]} button=${r.hostButton[k]}`).join(' | '))
+  checkFn(
+    '宿主 button 与 span 几何度量一致（差异仅来自 UA）',
+    buttonDiffs.length === 0,
+    buttonDiffs.map(k => `${k}: span=${r.host[k]} button=${r.hostButton[k]}`).join(' | '),
+  )
 
   const aDiffs = Object.keys(r.hostAnchor).filter(k => r.hostAnchor[k] !== r.mineAnchor[k])
-  checkFn('anchor 计算样式与宿主一致', aDiffs.length === 0,
-    aDiffs.map(k => `${k}: 宿主=${r.hostAnchor[k]} 我的=${r.mineAnchor[k]}`).join(' | '))
+  checkFn(
+    'anchor 计算样式与宿主一致',
+    aDiffs.length === 0,
+    aDiffs.map(k => `${k}: 宿主=${r.hostAnchor[k]} 我的=${r.mineAnchor[k]}`).join(' | '),
+  )
 }
 
 console.log('\n== 2. 主题改字号（14px / +2px 行高）后仍一致 ==')
@@ -341,11 +436,20 @@ console.log('\n== 2. 主题改字号（14px / +2px 行高）后仍一致 ==')
     '--dsh-chat-content-width': '820px',
   })
   const r = await compare(dom)
-  console.log('       宿主 pill :', JSON.stringify({ fontSize: r.host['font-size'], lineHeight: r.host['line-height'] }))
-  console.log('       我的 pill :', JSON.stringify({ fontSize: r.mine['font-size'], lineHeight: r.mine['line-height'] }))
+  console.log(
+    '       宿主 pill :',
+    JSON.stringify({ fontSize: r.host['font-size'], lineHeight: r.host['line-height'] }),
+  )
+  console.log(
+    '       我的 pill :',
+    JSON.stringify({ fontSize: r.mine['font-size'], lineHeight: r.mine['line-height'] }),
+  )
   const diffs = Object.keys(r.host).filter(k => r.host[k] !== r.mine[k])
-  checkFn('字号变化后仍逐项一致', diffs.length === 0,
-    diffs.map(k => `${k}: ${r.host[k]} vs ${r.mine[k]}`).join(' | '))
+  checkFn(
+    '字号变化后仍逐项一致',
+    diffs.length === 0,
+    diffs.map(k => `${k}: ${r.host[k]} vs ${r.mine[k]}`).join(' | '),
+  )
   check('三者字号一致', r.mine['font-size'], r.host['font-size'])
   check('三者行高一致', r.mine['line-height'], r.host['line-height'])
 }
@@ -354,27 +458,55 @@ console.log('\n== 3. 变量完全缺失时兜底（主题未提供）==')
 {
   const dom = makeDom({})
   const r = await compare(dom)
-  console.log('       宿主 pill :', JSON.stringify({ fontSize: r.host['font-size'], lineHeight: r.host['line-height'] }))
-  console.log('       我的 pill :', JSON.stringify({ fontSize: r.mine['font-size'], lineHeight: r.mine['line-height'] }))
+  console.log(
+    '       宿主 pill :',
+    JSON.stringify({ fontSize: r.host['font-size'], lineHeight: r.host['line-height'] }),
+  )
+  console.log(
+    '       我的 pill :',
+    JSON.stringify({ fontSize: r.mine['font-size'], lineHeight: r.mine['line-height'] }),
+  )
   // 两者都从同一个容器继承，兜底也必须一致。
-  checkFn('缺变量时字号仍一致', r.mine['font-size'] === r.host['font-size'], `${r.host['font-size']} vs ${r.mine['font-size']}`)
-  checkFn('缺变量时行高仍一致', r.mine['line-height'] === r.host['line-height'], `${r.host['line-height']} vs ${r.mine['line-height']}`)
+  checkFn(
+    '缺变量时字号仍一致',
+    r.mine['font-size'] === r.host['font-size'],
+    `${r.host['font-size']} vs ${r.mine['font-size']}`,
+  )
+  checkFn(
+    '缺变量时行高仍一致',
+    r.mine['line-height'] === r.host['line-height'],
+    `${r.host['line-height']} vs ${r.mine['line-height']}`,
+  )
   const diffs = Object.keys(r.host).filter(k => r.host[k] !== r.mine[k])
   checkFn('缺变量时全部一致', diffs.length === 0, diffs.join(' | '))
 }
 
 console.log('\n== 4. 容器收窄（窄窗口）不改变 pill 自身度量 ==')
 {
-  const wide = await compare(makeDom({ '--dsh-chat-content-width': '1200px', '--dsh-content-font-size-secondary': '13px' }))
-  const narrow = await compare(makeDom({ '--dsh-chat-content-width': '420px', '--dsh-content-font-size-secondary': '13px' }))
-  checkFn('窄容器下 pill 计算样式不变', JSON.stringify(wide.mine) === JSON.stringify(narrow.mine),
-    JSON.stringify({ wide: wide.mine, narrow: narrow.mine }))
+  const wide = await compare(
+    makeDom({ '--dsh-chat-content-width': '1200px', '--dsh-content-font-size-secondary': '13px' }),
+  )
+  const narrow = await compare(
+    makeDom({ '--dsh-chat-content-width': '420px', '--dsh-content-font-size-secondary': '13px' }),
+  )
+  checkFn(
+    '窄容器下 pill 计算样式不变',
+    JSON.stringify(wide.mine) === JSON.stringify(narrow.mine),
+    JSON.stringify({ wide: wide.mine, narrow: narrow.mine }),
+  )
   // 宿主自己声明了 nowrap + ellipsis，我和它一致就不会撑破。
   check('不换行（同宿主）', narrow.mine['white-space'], wide.host['white-space'])
-  checkFn('允许省略（min-width:0）', /^0(px)?$/.test(narrow.mineAnchor['min-width']), narrow.mineAnchor['min-width'])
+  checkFn(
+    '允许省略（min-width:0）',
+    /^0(px)?$/.test(narrow.mineAnchor['min-width']),
+    narrow.mineAnchor['min-width'],
+  )
   // 宿主 pill 自带 max-width:100%，窄容器下由它兜住溢出。
-  checkFn('窄容器下仍受 max-width 约束', narrow.mine['box-sizing'] === 'border-box' && narrow.mine['white-space'] === 'nowrap',
-    JSON.stringify(narrow.mine))
+  checkFn(
+    '窄容器下仍受 max-width 约束',
+    narrow.mine['box-sizing'] === 'border-box' && narrow.mine['white-space'] === 'nowrap',
+    JSON.stringify(narrow.mine),
+  )
 }
 
 console.log('\n== 5. 深色主题下结构不变 ==')
@@ -386,22 +518,44 @@ console.log('\n== 5. 深色主题下结构不变 ==')
     '--dsw-alias-interactive-bg-hover': 'rgb(40,40,40)',
   })
   const dark = await compare(darkDom)
-  const light = await compare(makeDom({
-    '--dsh-content-font-size-secondary': '13px',
-    '--dsw-alias-label-tertiary': 'rgb(120,120,120)',
-    '--dsw-alias-label-secondary': 'rgb(80,80,80)',
-    '--dsw-alias-interactive-bg-hover': 'rgb(240,240,240)',
-  }))
+  const light = await compare(
+    makeDom({
+      '--dsh-content-font-size-secondary': '13px',
+      '--dsw-alias-label-tertiary': 'rgb(120,120,120)',
+      '--dsw-alias-label-secondary': 'rgb(80,80,80)',
+      '--dsw-alias-interactive-bg-hover': 'rgb(240,240,240)',
+    }),
+  )
 
-  const structural = ['border-radius', 'padding-top', 'padding-left', 'gap', 'font-size', 'line-height', 'display']
+  const structural = [
+    'border-radius',
+    'padding-top',
+    'padding-left',
+    'gap',
+    'font-size',
+    'line-height',
+    'display',
+  ]
   const diffs = structural.filter(k => dark.mine[k] !== light.mine[k])
   checkFn('深浅色主题下结构度量一致', diffs.length === 0, diffs.join(' | '))
   // 颜色走 var()，jsdom 不解析，所以这里核对的是「CSS 源里引用了主题变量」，
   // 由第 6 节保证不与宿主冲突。文本由 compare 在关窗口前抓出。
   const cssText = dark.cssText
-  checkFn('文字色引用主题变量', cssText.includes('color:var(--dsw-alias-label-tertiary)'), cssText.slice(0, 140))
-  checkFn('悬停背景引用主题变量', cssText.includes('background:var(--dsw-alias-interactive-bg-hover)'), cssText.slice(0, 140))
-  checkFn('悬停文字色引用主题变量', cssText.includes('color:var(--dsw-alias-label-secondary)'), cssText.slice(0, 140))
+  checkFn(
+    '文字色引用主题变量',
+    cssText.includes('color:var(--dsw-alias-label-tertiary)'),
+    cssText.slice(0, 140),
+  )
+  checkFn(
+    '悬停背景引用主题变量',
+    cssText.includes('background:var(--dsw-alias-interactive-bg-hover)'),
+    cssText.slice(0, 140),
+  )
+  checkFn(
+    '悬停文字色引用主题变量',
+    cssText.includes('color:var(--dsw-alias-label-secondary)'),
+    cssText.slice(0, 140),
+  )
 }
 
 console.log('\n== 6. 样式作用域：不污染宿主 ==')
@@ -409,7 +563,9 @@ console.log('\n== 6. 样式作用域：不污染宿主 ==')
   const r = await compare(makeDom({ '--dsh-content-font-size-secondary': '13px' }))
   const cssInjected = r.cssText
   // 我的所有选择器都必须带 mimoq_ 前缀，绝不能命中宿主的类名。
-  const selectors = [...cssInjected.matchAll(/(^|\})([^{}]+)\{/g)].map(x => x[2].trim()).filter(Boolean)
+  const selectors = [...cssInjected.matchAll(/(^|\})([^{}]+)\{/g)]
+    .map(x => x[2].trim())
+    .filter(Boolean)
   console.log('       选择器:', selectors.join(' | '))
   const leaking = selectors.filter(sel => !sel.includes('mimoq_'))
   checkFn('所有选择器都限定在 mimoq_ 前缀', leaking.length === 0, leaking.join(' | '))
@@ -417,7 +573,11 @@ console.log('\n== 6. 样式作用域：不污染宿主 ==')
   checkFn('未定义宿主类名', !cssInjected.includes(`.${STATS_PREFIX}_`), cssInjected.slice(0, 120))
   checkFn('未使用通配符选择器', !selectors.some(s => s === '*'), selectors.join(' | '))
   checkFn('未使用 !important', !cssInjected.includes('!important'), cssInjected.slice(0, 120))
-  checkFn('未对宿主元素做全局覆盖', !/^\s*(html|body|\*)/m.test(cssInjected), cssInjected.slice(0, 120))
+  checkFn(
+    '未对宿主元素做全局覆盖',
+    !/^\s*(html|body|\*)/m.test(cssInjected),
+    cssInjected.slice(0, 120),
+  )
 }
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)

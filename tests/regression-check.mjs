@@ -4,7 +4,16 @@
 // import，会命中 ESM 模块缓存，测到的仍是旧版本 —— 实验因此无效。
 //
 // 这里：把变体源码写到临时目录 → 用独立 node 进程跑测试 → 断言失败原因。
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, copyFileSync, openSync, closeSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  copyFileSync,
+  openSync,
+  closeSync,
+} from 'node:fs'
 import { join, dirname } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -22,7 +31,14 @@ function probeWith(indexSource, label) {
   mkdirSync(dir, { recursive: true })
 
   // 复制插件源码，替换 index.js
-  for (const f of ['credential.js', 'cookie-jar.js', 'adapter.js', 'upstream.js', 'catalog.js', 'session.js', 'quota.js']) {
+  for (const f of [
+    'credential.js',
+    'cookie-jar.js',
+    'adapter.js',
+    'catalog.js',
+    'session.js',
+    'quota.js',
+  ]) {
     copyFileSync(join(SRC, f), join(dir, f))
   }
   writeFileSync(join(dir, 'index.js'), indexSource)
@@ -81,7 +97,10 @@ rmSync(d, { recursive: true, force: true })
 
   const outFile = join('tests', `_variant-${label}.txt`)
   const fd = openSync(outFile, 'w')
-  const r = spawnSync(process.execPath, [probePath], { stdio: ['ignore', fd, fd], cwd: process.cwd() })
+  const r = spawnSync(process.execPath, [probePath], {
+    stdio: ['ignore', fd, fd],
+    cwd: process.cwd(),
+  })
   closeSync(fd)
   const output = readFileSync(outFile, 'utf-8')
   rmSync(dir, { recursive: true, force: true })
@@ -116,7 +135,8 @@ console.log('  输出:', fixed.output.trim().split('\n')[0] ?? '(空)')
 const ok = fixed.status === 0 && /OK signedIn=true/.test(fixed.output)
 console.log('  正常工作:', ok)
 
-console.log('\n结论:', caught && ok
-  ? '回归测试有效：旧写法必然崩溃，修复版正常工作'
-  : '警告：回归验证不成立')
+console.log(
+  '\n结论:',
+  caught && ok ? '回归测试有效：旧写法必然崩溃，修复版正常工作' : '警告：回归验证不成立',
+)
 process.exitCode = caught && ok ? 0 : 1

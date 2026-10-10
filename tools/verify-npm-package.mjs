@@ -4,7 +4,16 @@
  * 「npm publish 成功」不等于「别人能装好」——要确认 tarball 里
  * 运行时必需的文件都在，且能正常 import。
  */
-import { mkdtempSync, rmSync, writeFileSync, readdirSync, statSync, existsSync, readFileSync, mkdirSync } from 'node:fs'
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -78,7 +87,6 @@ const required = [
   'package/src/cookie-jar.js',
   'package/src/credential.js',
   'package/src/session.js',
-  'package/src/upstream.js',
   'package/bin/cli.js',
 ]
 let missing = 0
@@ -92,10 +100,13 @@ console.log(`  → ${required.length - missing}/${required.length} 就位`)
 console.log('\n=== 4) 检查不应包含的文件 ===')
 let leaked = 0
 const pkgRoot = join(pkgDir, 'package')
-const walk = (d) => {
+const walk = d => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     const p = join(d, e.name)
-    if (e.isDirectory()) { walk(p); continue }
+    if (e.isDirectory()) {
+      walk(p)
+      continue
+    }
     if (/\.(db|log|tgz)$/i.test(e.name)) {
       console.log('  泄漏:', p.replace(pkgRoot, 'package'))
       leaked++
@@ -114,7 +125,9 @@ console.log('  dsh.bundle:', JSON.stringify(pj.dsh?.bundle))
 
 console.log('\n=== 6) 验证模块可被 import（语法正确性）===')
 try {
-  const mod = await import('file:///' + join(pkgDir, 'package', 'src', 'index.js').replace(/\\/g, '/'))
+  const mod = await import(
+    'file:///' + join(pkgDir, 'package', 'src', 'index.js').replace(/\\/g, '/')
+  )
   console.log('  插件导出 name  :', mod.name)
   console.log('  插件导出 inject:', JSON.stringify(mod.inject))
   console.log('  Config 存在    :', mod.Config !== undefined)
@@ -130,7 +143,7 @@ try {
 
 console.log('\n=== 7) 统计 ===')
 const files = []
-const collect = (d) => {
+const collect = d => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
     const p = join(d, e.name)
     if (e.isDirectory()) collect(p)
@@ -142,5 +155,7 @@ console.log(`  总文件数: ${files.length}`)
 console.log(`  总大小  : ${(files.reduce((a, f) => a + f.size, 0) / 1024).toFixed(1)} kB`)
 
 rmSync(work, { recursive: true, force: true })
-console.log(`\n=== 结论: ${missing === 0 && leaked === 0 ? '✅ 发布完整可用' : '⚠ 有问题需修复'} ===`)
+console.log(
+  `\n=== 结论: ${missing === 0 && leaked === 0 ? '✅ 发布完整可用' : '⚠ 有问题需修复'} ===`,
+)
 process.exitCode = missing === 0 && leaked === 0 ? 0 : 1

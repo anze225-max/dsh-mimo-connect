@@ -21,11 +21,34 @@
  * @module dsh-mimo-connect/credential
  */
 
-import { readFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, renameSync, writeFileSync, chmodSync } from 'node:fs'
+import {
+  readFileSync,
+  existsSync,
+  copyFileSync,
+  unlinkSync,
+  mkdirSync,
+  renameSync,
+  writeFileSync,
+  chmodSync,
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { CookieJar } from './cookie-jar.js'
+
+/**
+ * One resolved MiMo credential: the Xiaomi passport triple, plus where it came
+ * from. `cookiePath` is present only for a credential read out of the desktop
+ * app's cookie database, and records which candidate path answered.
+ *
+ * @typedef {object} MiMoCredential
+ * @property {string} passToken - the passport token; the only required field.
+ * @property {string} cUserId - the account's client-side user id.
+ * @property {string} userId - the account's user id.
+ * @property {'plugin'|'desktop'} source - which resolver answered.
+ * @property {number} [savedAtMs] - when the plugin saved its own credential.
+ * @property {string} [cookiePath] - the desktop cookie database that answered.
+ */
 
 /** Xiaomi passport cookies required to establish a session. */
 export const REQUIRED_COOKIES = ['passToken', 'cUserId', 'userId']
@@ -59,8 +82,21 @@ export function desktopCookieCandidates(env = process.env) {
   const home = env.HOME ?? env.USERPROFILE
   if (typeof home === 'string' && home.length > 0) {
     // Non-Windows layouts, for completeness.
-    out.push(join(home, '.config', 'Xiaomi MiMo', 'Partitions', 'xiaomi-account', 'Network', 'Cookies'))
-    out.push(join(home, 'Library', 'Application Support', 'Xiaomi MiMo', 'Partitions', 'xiaomi-account', 'Network', 'Cookies'))
+    out.push(
+      join(home, '.config', 'Xiaomi MiMo', 'Partitions', 'xiaomi-account', 'Network', 'Cookies'),
+    )
+    out.push(
+      join(
+        home,
+        'Library',
+        'Application Support',
+        'Xiaomi MiMo',
+        'Partitions',
+        'xiaomi-account',
+        'Network',
+        'Cookies',
+      ),
+    )
   }
   return [...new Set(out)]
 }
@@ -119,7 +155,9 @@ export function readDesktopCookies(dbPath) {
     return undefined
   } finally {
     for (const path of copied) {
-      try { unlinkSync(path) } catch {}
+      try {
+        unlinkSync(path)
+      } catch {}
     }
   }
 }
@@ -131,9 +169,7 @@ export function readDesktopCookies(dbPath) {
  * @returns absolute path.
  */
 export function ownAuthPath(env = process.env) {
-  const home = env.DSH_HOME && env.DSH_HOME.length > 0
-    ? env.DSH_HOME
-    : join(homedir(), '.dsh')
+  const home = env.DSH_HOME && env.DSH_HOME.length > 0 ? env.DSH_HOME : join(homedir(), '.dsh')
   return join(home, OWN_AUTH_FILENAME)
 }
 
@@ -172,18 +208,24 @@ export function parseOwnCredential(text) {
 export function writeOwnCredential(path, credential) {
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.tmp-${process.pid}`
-  const body = JSON.stringify({
-    version: OWN_FORMAT_VERSION,
-    credential: {
-      passToken: credential.passToken,
-      cUserId: credential.cUserId,
-      userId: credential.userId,
-      savedAtMs: Date.now(),
+  const body = JSON.stringify(
+    {
+      version: OWN_FORMAT_VERSION,
+      credential: {
+        passToken: credential.passToken,
+        cUserId: credential.cUserId,
+        userId: credential.userId,
+        savedAtMs: Date.now(),
+      },
     },
-  }, null, 2)
+    null,
+    2,
+  )
   writeFileSync(tmp, body, { mode: 0o600 })
   renameSync(tmp, path)
-  try { chmodSync(path, 0o600) } catch {}
+  try {
+    chmodSync(path, 0o600)
+  } catch {}
 }
 
 /**
@@ -216,7 +258,7 @@ export class MiMoCredentialStore {
   /**
    * Load the plugin's own credential, if present.
    *
-   * @returns the credential plus `source`, or undefined.
+   * @returns {MiMoCredential|undefined} the credential plus `source`, or undefined.
    */
   readOwn() {
     try {
@@ -232,7 +274,7 @@ export class MiMoCredentialStore {
   /**
    * Load a credential from the desktop app's cookie database.
    *
-   * @returns the credential plus `source` and the path used, or undefined.
+   * @returns {MiMoCredential|undefined} the credential plus `source` and the path used, or undefined.
    */
   readDesktop() {
     for (const path of this.#candidates) {
@@ -273,9 +315,9 @@ export class MiMoCredentialStore {
     if (desktop !== undefined) return desktop
 
     throw new Error(
-      'MiMo 尚未登录。请先运行 `dsh plugin --profile <profile> exec dsh-mimo-connect login` '
-      + '完成一次登录，或在 Xiaomi MiMo 桌面端登录后重试。'
-      + `（已查找：${this.#candidates.join(', ') || '无可用路径'}）`,
+      'MiMo 尚未登录。请先运行 `dsh plugin --profile <profile> exec dsh-mimo-connect login` ' +
+        '完成一次登录，或在 Xiaomi MiMo 桌面端登录后重试。' +
+        `（已查找：${this.#candidates.join(', ') || '无可用路径'}）`,
     )
   }
 

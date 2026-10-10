@@ -11,12 +11,22 @@ import { MiMoSession } from '../src/session.js'
 let pass = 0
 let fail = 0
 const check = (l, a, e) => {
-  if (JSON.stringify(a) === JSON.stringify(e)) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`) }
+  if (JSON.stringify(a) === JSON.stringify(e)) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`)
+  }
 }
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 
 const catalog = new MiMoCatalog()
@@ -28,7 +38,10 @@ console.log('\n== 提供 resolveAttachments 时透传 ==')
   const { adapter } = createMiMoAdapter({
     catalog,
     getSession: () => new MiMoSession({}),
-    resolveAttachments: () => { calls++; return fakeStore },
+    resolveAttachments: () => {
+      calls++
+      return fakeStore
+    },
   })
   // 通过内部配置间接验证：调用一次 resolveModel 不应抛错
   const m = await adapter.resolveModel('mimo', 'mimo-v2.6-flash')
@@ -56,7 +69,11 @@ console.log('\n== resolveAttachments 返回 undefined 时不应崩溃 ==')
     resolveAttachments: () => undefined,
   })
   const models = await adapter.listModels('mimo')
-  check('模型列表正常', models.map(x => x.id), ['mimo-v2.6-flash', 'mimo-v2.6-pro'])
+  check(
+    '模型列表正常',
+    models.map(x => x.id),
+    ['mimo-v2.6-flash', 'mimo-v2.6-pro'],
+  )
 }
 
 console.log('\n== 附件服务是惰性求值（服务晚于 apply 就绪）==')

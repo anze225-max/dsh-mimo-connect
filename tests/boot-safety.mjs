@@ -9,17 +9,29 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import yaml from 'js-yaml'
 import { Context } from '@deepseek-ai/cordis'
+import { SKIP_EXIT_CODE } from './exit-codes.mjs'
 
 let pass = 0
 let fail = 0
 const check = (label, actual, expected) => {
-  const a = JSON.stringify(actual); const e = JSON.stringify(expected)
-  if (a === e) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`) }
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`)
+  }
 }
 const checkFn = (label, cond, detail = '') => {
-  if (cond) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label} ${detail}`) }
+  if (cond) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label} ${detail}`)
+  }
 }
 
 // 本套件检查的是「本插件装进 profile 之后能否安全加载」，因此需要一个真实的
@@ -31,7 +43,7 @@ if (typeof dshHome !== 'string' || dshHome.length === 0) {
   console.log('       在装有 DSH 并已安装本插件的机器上设置 DSH_HOME 后重跑。')
   console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
   console.log('结论：无可检查的 profile，跳过（不是失败）')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 
 const profileDir = join(dshHome, 'profiles', 'desktop')
@@ -42,7 +54,7 @@ if (!existsSync(profileManifest)) {
   console.log(`\n  SKIP 找不到 ${profileManifest}（该 profile 尚未初始化）`)
   console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
   console.log('结论：无可检查的 profile，跳过（不是失败）')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 
 const pkg = JSON.parse(readFileSync(profileManifest, 'utf-8'))
@@ -51,7 +63,7 @@ if (!Array.isArray(bundles)) {
   console.log('\n  SKIP profile manifest 未声明 dsh.profile.bundles')
   console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
   console.log('结论：无可检查的 bundle 列表，跳过（不是失败）')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 console.log('  bundles:', bundles.join(', '))
 
@@ -81,14 +93,17 @@ if (!installed) {
   console.log('       然后重跑本套件。')
   console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)
   console.log('结论：无待验证的安装，跳过（不是失败）')
-  process.exit(0)
+  process.exit(SKIP_EXIT_CODE)
 }
 checkFn('含 llm-mimo 条目', installed)
 
 console.log('\n== 逐个加载条目（真实 cordis）==')
 for (const row of rows) {
   const entryPath = join(row.dir, 'package.json')
-  if (!existsSync(entryPath)) { console.log(`  SKIP ${row.name}: 无 package.json`); continue }
+  if (!existsSync(entryPath)) {
+    console.log(`  SKIP ${row.name}: 无 package.json`)
+    continue
+  }
   const meta = JSON.parse(readFileSync(entryPath, 'utf-8'))
   const mainPath = join(row.dir, meta.main)
   checkFn(`${row.name}: main 文件存在`, existsSync(mainPath), meta.main)
@@ -102,10 +117,19 @@ for (const row of rows) {
   const ctx = new Context()
   ctx.provide('llm', { registerAdapter: () => () => {} })
   let thrown
-  try { mod.apply(ctx, { authFile: 'D:\\nonexistent\\auth.json', pollSeconds: 0 }) }
-  catch (e) { thrown = e }
-  checkFn(`${row.name}: apply 不抛异常（否则 DSH 进恢复模式）`, thrown === undefined,
-    thrown ? `threw: ${thrown.message}` : '')
+  try {
+    // `cookieDb` is the current config key; it used to be `authFile`. Point it at
+    // a path that cannot exist, so the plugin starts with no credential and the
+    // checks below exercise the signed-out path deterministically.
+    mod.apply(ctx, { cookieDb: join('nonexistent', 'Cookies'), pollSeconds: 0 })
+  } catch (e) {
+    thrown = e
+  }
+  checkFn(
+    `${row.name}: apply 不抛异常（否则 DSH 进恢复模式）`,
+    thrown === undefined,
+    thrown ? `threw: ${thrown.message}` : '',
+  )
   checkFn(`${row.name}: 未把 ctx.x 当服务写`, typeof ctx.status !== 'function')
   checkFn(`${row.name}: 状态经由 accessor 暴露`, typeof ctx.mimoStatus === 'function')
 }

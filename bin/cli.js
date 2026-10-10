@@ -268,15 +268,26 @@ async function cmdDoctor() {
 
 const [sub, ...rest] = process.argv.slice(2)
 switch (sub) {
-  case 'status': await cmdStatus(rest); break
-  case 'login': await cmdLogin(); break
-  case 'logout': await cmdLogout(); break
-  case 'verify': await cmdVerify(); break
-  case 'doctor': await cmdDoctor(); break
+  case 'status':
+    await cmdStatus(rest)
+    break
+  case 'login':
+    await cmdLogin()
+    break
+  case 'logout':
+    await cmdLogout()
+    break
+  case 'verify':
+    await cmdVerify()
+    break
+  case 'doctor':
+    await cmdDoctor()
+    break
   case undefined:
   case '--help':
   case '-h':
-    usage(); break
+    usage()
+    break
   default:
     console.error(`未知子命令: ${sub}\n`)
     usage()

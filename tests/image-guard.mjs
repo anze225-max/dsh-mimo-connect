@@ -20,8 +20,13 @@ import { contentHasImage } from '@deepseek-ai/dsh-llm'
 let pass = 0
 let fail = 0
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 
 /** 复刻 pi-ai 的守卫判断。 */
@@ -42,7 +47,10 @@ const catalog = new MiMoCatalog()
 const textOnly = [{ role: 'user', content: [{ type: 'text', text: '你好' }] }]
 const withImage = [
   { role: 'user', content: [{ type: 'text', text: '看图' }] },
-  { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }] },
+  {
+    role: 'user',
+    content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }],
+  },
 ]
 // 多条消息中任一含顶层图片块
 const laterImage = [
@@ -108,8 +116,11 @@ console.log('\n== 适配补充：resolveImageAccess 已接线 ==')
   checkFn('adapter 暴露 resolveImageAccess', typeof cfg.resolveImageAccess === 'function')
   let threw
   let value
-  try { value = cfg.resolveImageAccess(storeNoFs, ref) }
-  catch (e) { threw = e }
+  try {
+    value = cfg.resolveImageAccess(storeNoFs, ref)
+  } catch (e) {
+    threw = e
+  }
   checkFn('fs 缺失时降级、不抛错', threw === undefined, threw ? String(threw.message) : '')
   checkFn('降级结果为 undefined（句柄里不含路径）', value === undefined, JSON.stringify(value))
 
@@ -117,12 +128,16 @@ console.log('\n== 适配补充：resolveImageAccess 已接线 ==')
   const storeNoHostPath = { id: 'attachments', imageHostPath: () => undefined }
   let v2
   let t2
-  try { v2 = cfg.resolveImageAccess(storeNoHostPath, ref) } catch (e) { t2 = e }
+  try {
+    v2 = cfg.resolveImageAccess(storeNoHostPath, ref)
+  } catch (e) {
+    t2 = e
+  }
   checkFn('无宿主路径时降级、不抛错', t2 === undefined, t2 ? String(t2.message) : '')
   checkFn('无宿主路径时结果为 undefined', v2 === undefined, JSON.stringify(v2))
 
   // fs 可用：映射出只读路径
-  const fsStub = { processPathFromHostPath: (hostPath) => `/proc${hostPath}` }
+  const fsStub = { processPathFromHostPath: hostPath => `/proc${hostPath}` }
   const { adapter: withFsAdapter } = createMiMoAdapter({
     catalog,
     getSession: () => new MiMoSession({}),
@@ -131,7 +146,11 @@ console.log('\n== 适配补充：resolveImageAccess 已接线 ==')
   })
   cfg = withFsAdapter.config ?? {}
   const access = cfg.resolveImageAccess(storeNoFs, ref)
-  checkFn('fs 可用时给出 readonlyPath', access?.readonlyPath === '/procC:/host/x.png', JSON.stringify(access))
+  checkFn(
+    'fs 可用时给出 readonlyPath',
+    access?.readonlyPath === '/procC:/host/x.png',
+    JSON.stringify(access),
+  )
 
   // 显式传入的 resolveImageAccess 覆盖默认实现
   const { adapter: overrideAdapter } = createMiMoAdapter({
@@ -141,7 +160,11 @@ console.log('\n== 适配补充：resolveImageAccess 已接线 ==')
     resolveImageAccess: () => ({ readonlyPath: '/custom' }),
   })
   const overridden = (overrideAdapter.config ?? {}).resolveImageAccess(storeNoFs, ref)
-  checkFn('显式 resolveImageAccess 优先', overridden?.readonlyPath === '/custom', JSON.stringify(overridden))
+  checkFn(
+    '显式 resolveImageAccess 优先',
+    overridden?.readonlyPath === '/custom',
+    JSON.stringify(overridden),
+  )
 }
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)

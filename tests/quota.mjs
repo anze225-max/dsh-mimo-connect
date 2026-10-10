@@ -13,17 +13,34 @@ import { MiMoSession } from '../src/session.js'
 let pass = 0
 let fail = 0
 const check = (l, a, e) => {
-  if (JSON.stringify(a) === JSON.stringify(e)) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`) }
+  if (JSON.stringify(a) === JSON.stringify(e)) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l}\n       期望 ${JSON.stringify(e)}\n       实际 ${JSON.stringify(a)}`)
+  }
 }
 const checkFn = (l, c, d = '') => {
-  if (c) { pass++; console.log(`  PASS ${l}`) }
-  else { fail++; console.log(`  FAIL ${l} ${d}`) }
+  if (c) {
+    pass++
+    console.log(`  PASS ${l}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${l} ${d}`)
+  }
 }
 
 console.log('\n== parseQuota 解析 ==')
-check('标准信封', parseQuota({ code: 0, message: 'success', data: { percent: 99.8, resetDate: '2026-09-30', resetAt: 1790782334 } }),
-  { percent: 99.8, resetAt: 1790782334, resetDate: '2026-09-30' })
+check(
+  '标准信封',
+  parseQuota({
+    code: 0,
+    message: 'success',
+    data: { percent: 99.8, resetDate: '2026-09-30', resetAt: 1790782334 },
+  }),
+  { percent: 99.8, resetAt: 1790782334, resetDate: '2026-09-30' },
+)
 check('裸 data 也接受', parseQuota({ percent: 42 }), { percent: 42 })
 check('缺 percent 返回 undefined', parseQuota({ data: { resetDate: '2026-09-30' } }), undefined)
 check('非对象返回 undefined', parseQuota('nope'), undefined)
@@ -54,7 +71,7 @@ check('可选字段缺失时不出现', Object.keys(parseQuota({ data: { percent
  */
 function sessionServing(body, status = 200, onCall) {
   return new MiMoSession({
-    fetch: async (url) => {
+    fetch: async url => {
       const { pathname } = new URL(url)
       if (pathname === '/api/user/xiaomi/me') {
         // Mint: hand back a token scoped to the server's parent domain.
@@ -73,7 +90,10 @@ console.log('\n== 成功读取 ==')
 {
   let calls = 0
   const reader = new MiMoQuotaReader({
-    getSession: () => sessionServing({ code: 0, data: { percent: 77.5, resetDate: '2026-09-30' } }, 200, () => { calls++ }),
+    getSession: () =>
+      sessionServing({ code: 0, data: { percent: 77.5, resetDate: '2026-09-30' } }, 200, () => {
+        calls++
+      }),
   })
   const quota = await reader.read({})
   checkFn('读到额度', quota !== undefined)
@@ -86,7 +106,10 @@ console.log('\n== 缓存命中不重复请求 ==')
 {
   let calls = 0
   const reader = new MiMoQuotaReader({
-    getSession: () => sessionServing({ code: 0, data: { percent: 60 } }, 200, () => { calls++ }),
+    getSession: () =>
+      sessionServing({ code: 0, data: { percent: 60 } }, 200, () => {
+        calls++
+      }),
   })
   await reader.read({})
   const first = calls
@@ -110,28 +133,37 @@ console.log('\n== 失败路径一律返回 undefined ==')
     const reader = new MiMoQuotaReader({ getSession: () => sessionServing(spec.body, spec.status) })
     let threw = false
     let result
-    try { result = await reader.read({}) } catch { threw = true }
+    try {
+      result = await reader.read({})
+    } catch {
+      threw = true
+    }
     checkFn(`${label} 不抛错`, !threw)
     check(`${label} 返回 undefined`, result, undefined)
   }
 
   // 网络层异常单独构造，因为它不是响应而是抛错。
   const throwing = new MiMoQuotaReader({
-    getSession: () => new MiMoSession({
-      fetch: async (url) => {
-        if (new URL(url).pathname === '/api/user/xiaomi/me') {
-          return new Response('', {
-            status: 302,
-            headers: { 'set-cookie': 'serviceToken=tok; Domain=.xiaomimimo.com; Path=/' },
-          })
-        }
-        throw new Error('ECONNREFUSED')
-      },
-    }),
+    getSession: () =>
+      new MiMoSession({
+        fetch: async url => {
+          if (new URL(url).pathname === '/api/user/xiaomi/me') {
+            return new Response('', {
+              status: 302,
+              headers: { 'set-cookie': 'serviceToken=tok; Domain=.xiaomimimo.com; Path=/' },
+            })
+          }
+          throw new Error('ECONNREFUSED')
+        },
+      }),
   })
   let threw = false
   let result
-  try { result = await throwing.read({}) } catch { threw = true }
+  try {
+    result = await throwing.read({})
+  } catch {
+    threw = true
+  }
   checkFn('网络异常不抛错', !threw)
   check('网络异常返回 undefined', result, undefined)
 }
@@ -148,7 +180,10 @@ console.log('\n== invalidate 清空缓存 ==')
 {
   let calls = 0
   const reader = new MiMoQuotaReader({
-    getSession: () => sessionServing({ code: 0, data: { percent: 30 } }, 200, () => { calls++ }),
+    getSession: () =>
+      sessionServing({ code: 0, data: { percent: 30 } }, 200, () => {
+        calls++
+      }),
   })
   await reader.read({})
   const first = calls
@@ -161,7 +196,10 @@ console.log('\n== 失败退避 ==')
 {
   let calls = 0
   const reader = new MiMoQuotaReader({
-    getSession: () => sessionServing('boom', 500, () => { calls++ }),
+    getSession: () =>
+      sessionServing('boom', 500, () => {
+        calls++
+      }),
   })
   await reader.read({})
   const first = calls
@@ -173,23 +211,27 @@ console.log('\n== 并发读取只打一次上游 ==')
 {
   let calls = 0
   const reader = new MiMoQuotaReader({
-    getSession: () => new MiMoSession({
-      fetch: async (url) => {
-        if (new URL(url).pathname === '/api/user/xiaomi/me') {
-          return new Response('', {
-            status: 302,
-            headers: { 'set-cookie': 'serviceToken=tok; Domain=.xiaomimimo.com; Path=/' },
-          })
-        }
-        calls++
-        await new Promise(r => setTimeout(r, 20))
-        return new Response(JSON.stringify({ code: 0, data: { percent: 88 } }), { status: 200 })
-      },
-    }),
+    getSession: () =>
+      new MiMoSession({
+        fetch: async url => {
+          if (new URL(url).pathname === '/api/user/xiaomi/me') {
+            return new Response('', {
+              status: 302,
+              headers: { 'set-cookie': 'serviceToken=tok; Domain=.xiaomimimo.com; Path=/' },
+            })
+          }
+          calls++
+          await new Promise(r => setTimeout(r, 20))
+          return new Response(JSON.stringify({ code: 0, data: { percent: 88 } }), { status: 200 })
+        },
+      }),
   })
   const results = await Promise.all([reader.read({}), reader.read({}), reader.read({})])
   check('三次并发只请求一次', calls, 1)
-  checkFn('结果一致', results.every(r => r !== undefined && r.percent === 88))
+  checkFn(
+    '结果一致',
+    results.every(r => r !== undefined && r.percent === 88),
+  )
 }
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===`)

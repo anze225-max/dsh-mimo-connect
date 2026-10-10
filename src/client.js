@@ -21,7 +21,7 @@
 
 window.__ModuleLoader__.load({
   id: 'dsh-mimo-connect',
-  factory: (require) => {
+  factory: require => {
     const module = { exports: {} }
     const exports = module.exports
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
@@ -135,7 +135,7 @@ window.__ModuleLoader__.load({
       const [routed, setRouted] = useState(() => providerOf(directory) === MIMO_PROVIDER)
       const [quota, setQuota] = useState(undefined)
 
-      const refresh = useCallback((signal) => {
+      const refresh = useCallback(signal => {
         return fetch(QUOTA_ROUTE, { signal })
           .then(response => (response.ok ? response.json() : undefined))
           .then(body => {
@@ -180,10 +180,12 @@ window.__ModuleLoader__.load({
 
       const percent = formatPercent(quota.percent)
       const label = t('quota.label', { percent })
-      const title = quota.resetDate === undefined
-        ? t('quota.title', { percent })
-        : `${t('quota.title', { percent })} · ${t('quota.reset', { date: quota.resetDate })}`
-      const tone = quota.percent <= 5 ? 'mimoq_dotLow' : quota.percent <= 20 ? 'mimoq_dotWarn' : undefined
+      const title =
+        quota.resetDate === undefined
+          ? t('quota.title', { percent })
+          : `${t('quota.title', { percent })} · ${t('quota.reset', { date: quota.resetDate })}`
+      const tone =
+        quota.percent <= 5 ? 'mimoq_dotLow' : quota.percent <= 20 ? 'mimoq_dotWarn' : undefined
 
       // The stylesheet rides in this component's own tree, so React inserts it
       // with the first render and removes it on unmount. Appending to
@@ -196,11 +198,19 @@ window.__ModuleLoader__.load({
         h('style', { key: 'css', 'data-plugin-css': 'dsh-mimo-connect/QuotaPill.module.css' }, CSS),
         h(
           'span',
-          { key: 'pill', className: 'mimoq_anchor', 'data-mimo-quota': true, 'data-session-id': sessionId },
+          {
+            key: 'pill',
+            className: 'mimoq_anchor',
+            'data-mimo-quota': true,
+            'data-session-id': sessionId,
+          },
           h(
             'span',
             { className: 'mimoq_pill', title, 'aria-label': title, role: 'note' },
-            h('span', { className: tone === undefined ? 'mimoq_dot' : `mimoq_dot ${tone}`, 'aria-hidden': true }),
+            h('span', {
+              className: tone === undefined ? 'mimoq_dot' : `mimoq_dot ${tone}`,
+              'aria-hidden': true,
+            }),
             h('span', { className: 'mimoq_label' }, label),
           ),
         ),
@@ -233,23 +243,28 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-mimo-connect: dictionaries')
 
-      ctx.inject(['slots', 'modelDirectories'], (scope) => {
+      ctx.inject(['slots', 'modelDirectories'], scope => {
         const models = scope.modelDirectories
-        scope.slots.inject('conversation.composer.dock', () => scope.slots.register({
-          name: 'conversation.composer.dock',
-          id: 'mimo-quota',
-          // The built-in stats pills sit at order 0; land just after them so the
-          // row reads: session stats, then quota, then the row ends.
-          order: 10,
-          locale: NS,
-          inject: (sessionId) => {
-            const directory = models.directoryFor(sessionId)
-            return {
-              sessionId,
-              directory: directory?.store,
-            }
-          },
-        }, QuotaPill))
+        scope.slots.inject('conversation.composer.dock', () =>
+          scope.slots.register(
+            {
+              name: 'conversation.composer.dock',
+              id: 'mimo-quota',
+              // The built-in stats pills sit at order 0; land just after them so the
+              // row reads: session stats, then quota, then the row ends.
+              order: 10,
+              locale: NS,
+              inject: sessionId => {
+                const directory = models.directoryFor(sessionId)
+                return {
+                  sessionId,
+                  directory: directory?.store,
+                }
+              },
+            },
+            QuotaPill,
+          ),
+        )
       })
     }
 

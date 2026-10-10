@@ -51,9 +51,7 @@ export const Config = Schema.object({
  */
 export function apply(ctx, config) {
   const cookieDb = typeof config?.cookieDb === 'string' ? config.cookieDb.trim() : ''
-  const store = new MiMoCredentialStore(
-    cookieDb.length > 0 ? { cookieCandidates: [cookieDb] } : {},
-  )
+  const store = new MiMoCredentialStore(cookieDb.length > 0 ? { cookieCandidates: [cookieDb] } : {})
   const catalog = new MiMoCatalog()
 
   // The session is rebuilt whenever the credential identity changes, so a
@@ -204,12 +202,12 @@ export function apply(ctx, config) {
   // browser connection (a headless run, or the CLI) has none, and that must not
   // hold back provider registration. A scoped inject stays pending until the
   // service appears, so the route mounts whenever a browser exists.
-  ctx.inject(['connection'], (scope) => {
+  ctx.inject(['connection'], scope => {
     scope.connection.fetch.register({
       path: QUOTA_ROUTE,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: async (request) => {
+      fetch: async request => {
         const reading = await quota.read({ signal: request.signal })
         if (reading === undefined) {
           return Response.json({ available: false }, { headers: { 'cache-control': 'no-store' } })

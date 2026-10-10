@@ -16,12 +16,22 @@ let fail = 0
 const check = (label, actual, expected) => {
   const a = JSON.stringify(actual)
   const e = JSON.stringify(expected)
-  if (a === e) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`) }
+  if (a === e) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label}\n       期望 ${e}\n       实际 ${a}`)
+  }
 }
 const checkFn = (label, cond, detail = '') => {
-  if (cond) { pass++; console.log(`  PASS ${label}`) }
-  else { fail++; console.log(`  FAIL ${label} ${detail}`) }
+  if (cond) {
+    pass++
+    console.log(`  PASS ${label}`)
+  } else {
+    fail++
+    console.log(`  FAIL ${label} ${detail}`)
+  }
 }
 
 /** Build a Chromium-shaped cookie database. */
@@ -29,7 +39,9 @@ function makeCookieDb(path, rows) {
   mkdirSync(join(path, '..'), { recursive: true })
   const db = new DatabaseSync(path)
   db.exec('CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB)')
-  const insert = db.prepare('INSERT INTO cookies (host_key, name, value, encrypted_value) VALUES (?, ?, ?, ?)')
+  const insert = db.prepare(
+    'INSERT INTO cookies (host_key, name, value, encrypted_value) VALUES (?, ?, ?, ?)',
+  )
   for (const [host, name, value] of rows) insert.run(host, name, value, null)
   db.close()
 }
@@ -59,7 +71,9 @@ function makeHost({ cookieDb, withConnection = true }) {
     llm: {
       registerAdapter(routes_, adapter) {
         registrations.push({ routes: routes_, adapter })
-        return () => { registrations.pop() }
+        return () => {
+          registrations.pop()
+        }
       },
     },
     ...(withConnection
@@ -68,14 +82,20 @@ function makeHost({ cookieDb, withConnection = true }) {
             fetch: {
               register(route) {
                 routes.push(route)
-                return () => { routes.splice(routes.indexOf(route), 1) }
+                return () => {
+                  routes.splice(routes.indexOf(route), 1)
+                }
               },
             },
           },
         }
       : {}),
-    emit(event) { emissions.push(event) },
-    effect(fn) { effects.push(fn) },
+    emit(event) {
+      emissions.push(event)
+    },
+    effect(fn) {
+      effects.push(fn)
+    },
     /**
      * Cordis holds a scoped inject pending until every named service exists.
      * The mock has to model that: calling the body unconditionally would hide
@@ -102,8 +122,12 @@ function makeHost({ cookieDb, withConnection = true }) {
       return () => accessors.delete(name)
     },
     logger: {
-      warn(...a) { errors.push(['warn', ...a]) },
-      error(...a) { errors.push(['error', ...a]) },
+      warn(...a) {
+        errors.push(['warn', ...a])
+      },
+      error(...a) {
+        errors.push(['error', ...a])
+      },
     },
   }
   const proxy = new Proxy(base, {
@@ -190,10 +214,13 @@ console.log('\n== 插件自存凭证优先于桌面端 ==')
   makeCookieDb(dbPath, REAL_ROWS)
   const home = join(root, 'home2')
   mkdirSync(home, { recursive: true })
-  writeFileSync(join(home, '.mimo-connect-auth.json'), JSON.stringify({
-    version: 1,
-    credential: { passToken: 'OWN-PT', cUserId: 'OWN-C', userId: 'OWN-U' },
-  }))
+  writeFileSync(
+    join(home, '.mimo-connect-auth.json'),
+    JSON.stringify({
+      version: 1,
+      credential: { passToken: 'OWN-PT', cUserId: 'OWN-C', userId: 'OWN-U' },
+    }),
+  )
 
   const prev = process.env.DSH_HOME
   process.env.DSH_HOME = home
@@ -227,7 +254,11 @@ console.log('\n== 额度路由 ==')
   const host = makeHost({ cookieDb: dbPath })
   const err = applyPlugin(mod, host.ctx, host.config)
   checkFn('apply 不抛异常', err === undefined, err?.message)
-  check('注册了额度路由', host.routes.map(r => r.path), ['/api/mimo.quota'])
+  check(
+    '注册了额度路由',
+    host.routes.map(r => r.path),
+    ['/api/mimo.quota'],
+  )
   check('路由只接受 GET', host.routes[0].methods, ['GET'])
 
   // 上游不可达时必须是 available:false，而不是错误状态或抛错。
@@ -259,8 +290,14 @@ console.log('\n== 销毁 ==')
   applyPlugin(mod, host.ctx, host.config)
   const dispose = host.effects[0]
   checkFn('销毁函数可调用', typeof dispose === 'function')
-  try { dispose()(); pass++; console.log('  PASS 销毁不抛异常') }
-  catch (e) { fail++; console.log(`  FAIL 销毁抛异常: ${e.message}`) }
+  try {
+    dispose()()
+    pass++
+    console.log('  PASS 销毁不抛异常')
+  } catch (e) {
+    fail++
+    console.log(`  FAIL 销毁抛异常: ${e.message}`)
+  }
 }
 
 rmSync(root, { recursive: true, force: true })

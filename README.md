@@ -217,7 +217,31 @@ node tests/run.mjs layout     # 仅排版对照
 node tests/run.mjs cookie     # 名称含 cookie 的套件
 ```
 
-部分套件在检测到可用凭证时会执行真实网络调用，否则自动跳过。
+测试结果分三类报告，互不混淆：
+
+- **通过** —— 套件跑了检查并全部通过；
+- **跳过** —— 套件在本机没有可验证的对象（退出码 `SKIP_EXIT_CODE` = 10），
+  不计入通过；
+- **失败** —— 其它任何非零退出码或被信号终止。
+
+跳过**不会**让运行失败，但也**不算一次通过**：汇总里单独列出跳过的套件名，
+避免「本机没东西可验」被误读成「已验证」。`boot-safety`（需要装了本插件的
+DSH profile）、`layout-parity`（需要 DSH 安装目录）、`e2e-live`（需要真实
+MiMo 凭证）在 CI 上都会走跳过分支——也就是说这三项**没有被 CI 覆盖**。
+
+改了客户端代码后务必重建：CI 里有一道闸门要求 `lib/` 与 `src/client.js` 一致，
+提交过期产物会直接失败。
+
+本地还有两条与测试并列的检查，CI 上同样是硬闸门：
+
+```sh
+npm run format:check   # 格式（Prettier：无分号、单引号、2 空格、100 列）
+npm run typecheck      # src/ 与 bin/ 的 JSDoc 类型检查（tsc --checkJs）
+```
+
+格式不对时用 `npm run format` 就地修好。`lib/` 已在 `.prettierignore` 中排除，
+它由构建生成，不需要（也不应该）手工格式化。类型检查只覆盖 `src/` 与 `bin/`：
+`tests/`、`tools/` 里 mock 与动态构造较多，纳入的噪声大于收益。
 
 渲染与排版测试需要几个只服务测试的依赖：
 
@@ -227,7 +251,7 @@ npm i --no-save js-yaml@^4 react@18.3.1 react-dom@18.3.1 jsdom
 
 它们不进发布产物——浏览器半侧在 DSH 页面里只从平台基座取 React。
 
-`tools/` 存放本机部署辅助脚本（引用机器相关的 DSH profile 路径），不属于发布测试的一部分。`npm run sync` 会先构建再把插件同步到 desktop profile。
+`tools/` 存放本机部署辅助脚本，不属于发布测试的一部分。目标 profile 依次从 `DSH_PROFILE_DIR`、`DSH_HOME`、`USERPROFILE` 解析，没有写死到某一台机器。`npm run sync` 会先构建再把插件同步到该 profile。
 
 ### 浏览器半侧
 
@@ -237,13 +261,15 @@ npm i --no-save js-yaml@^4 react@18.3.1 react-dom@18.3.1 jsdom
 
 ### 额度指示为什么能跟上宿主的排版
 
-统计行的两个原生 pill 是同一个 flex 容器 `[data-composer-stats]` 的子项，靠容器自己的 `display:flex; gap:12px` 排列——没有绝对定位，也没有手算偏移。
+插件把 pill 注册为 `conversation.composer.dock` 槽位的**普通条目**（`id: "mimo-quota"`，`order: 10`）。宿主自己的 `StatsPills` 也注册在这个槽位（`id: "stats"`，`order: 0`），所以排在它后面的 `order: 10` 正好落在统计 pill 旁边。这个槽位的容器本身就是一行 flex（`justify-content:center; align-items:center; gap:12px; display:flex`），pill 是它的**真正子项**，排版权完全交给宿主自己的规则——没有绝对定位，也没有手算偏移。
 
-本插件不能成为那个容器的子项：注册 `conversation.composer.dock` 时宿主没有声明 `children`，slot 注册表里没有子插槽可用。所以组件用 `createPortal` 把 pill **送进** `[data-composer-stats]`，让它成为同一容器的真正子项，排版权完全交给宿主自己的规则。插件只声明 pill 自身的几何。
+插件只声明 pill 自身的几何，逐项对齐宿主统计行的 pill（`border-radius:999px`、`corner-shape:round`、`padding:1px 8px`、`gap:6px`、`font:inherit`、`line-height:inherit`、`font-variant-numeric:tabular-nums`），这样两边在任何字号或缩放下都读作同一行。
 
-`tests/layout-parity.mjs` 从 `dsh-client-ui-chat` 的产物里逐字提取宿主 CSS，把两边的 pill 放进同一容器比对**计算样式**，覆盖字号变化、变量缺失、窄容器与深色主题。找不到 DSH 安装目录时整支跳过（退出码 0）；用 `DSH_APP_ROOT` 可指定位置。
+样式表由组件自己渲染成一个 `<style>` 元素（带 `data-plugin-css` 归属标记），随组件挂载插入、卸载移除；不写到 `document.head`，因为宿主的 `claimStyles` 会把文档里每个未标记的 `<style>` 归到当时正在物化的插件名下，并在该插件卸载时一并删掉。
 
-统计行会随会话状态挂载与卸载，宿主也可能整体替换它，所以组件在轮询发现之后改用 `MutationObserver` 盯住替换。
+`tests/layout-parity.mjs` 从 `dsh-client-ui-chat` 的产物里逐字提取宿主 CSS，把两边的 pill 放进同一容器比对**计算样式**，覆盖字号变化、变量缺失、窄容器与深色主题。找不到 DSH 安装目录时整支跳过（退出码 10，`SKIP_EXIT_CODE`）；用 `DSH_APP_ROOT` 可指定位置。
+
+> 历史说明：0.2.0 及更早版本走的是另一条路——用 `createPortal` 把 pill 送进 `[data-composer-stats]`，再用 `MutationObserver` 盯住宿主替换。0.3.0 起改为上面这种「普通槽位条目」的做法，不再需要 portal 和观察器。
 
 ## 免责声明
 

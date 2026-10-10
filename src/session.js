@@ -58,8 +58,9 @@ export class MiMoSession {
   #minting
 
   /**
-   * @param options.jar - the jar seeded with passport cookies.
-   * @param options.fetch - fetch implementation (for tests).
+   * @param {object} [options] - the session's dependencies.
+   * @param {CookieJar} [options.jar] - the jar seeded with passport cookies.
+   * @param {typeof fetch} [options.fetch] - fetch implementation (for tests).
    */
   constructor(options = {}) {
     this.#jar = options.jar ?? new CookieJar()
@@ -191,16 +192,18 @@ export class MiMoSession {
       const location = response.headers.get('location')
       if (location === null || location.length === 0) {
         // Drain the body so the socket is released before we give up.
-        try { await response.arrayBuffer() } catch {}
+        try {
+          await response.arrayBuffer()
+        } catch {}
         break
       }
       url = new URL(location, url).toString()
     }
 
     throw new Error(
-      'MiMo 会话建立失败：未取得 serviceToken。'
-      + `最后一次响应 HTTP ${lastStatus}。`
-      + '若持续失败，请重新登录（login）或在桌面端重新登录。',
+      'MiMo 会话建立失败：未取得 serviceToken。' +
+        `最后一次响应 HTTP ${lastStatus}。` +
+        '若持续失败，请重新登录（login）或在桌面端重新登录。',
     )
   }
 
@@ -229,7 +232,9 @@ export class MiMoSession {
     if (response.status === 401 || response.status === 403) {
       // The token aged out mid-flight; mint a fresh one and retry exactly once.
       this.#clearServiceToken()
-      try { await response.arrayBuffer() } catch {}
+      try {
+        await response.arrayBuffer()
+      } catch {}
       response = await send()
     }
     return response

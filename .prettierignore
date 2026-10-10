@@ -1,0 +1,13 @@
+# Build outputs and dependencies are never formatted by hand.
+#
+# lib/ is generated from src/client.js by tools/build-client.mjs, so it inherits
+# that file's formatting automatically; running Prettier over it would only
+# create a diff the build would immediately undo.
+lib/
+node_modules/
+
+# Test-only artifacts left behind by the regression probe.
+tests/_variant-*/
+
+# Documented screenshots and other binary assets.
+docs/
