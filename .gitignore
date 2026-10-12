@@ -14,6 +14,9 @@ Thumbs.db
 # Scratch directories the regression probe creates while running.
 tests/_variant-*/
 
+# 网关实测探针的报告输出。可能含账号信息与用量数据，不要提交。
+probe-out/
+
 # 注意：lib/ 必须提交，不要加进忽略列表。
 # 宿主从 package.json 的 exports["./client"] 直接读取 lib/client.js，
 # 安装后没有构建步骤，缺了它 DSH 激活阶段会直接报错。
