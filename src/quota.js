@@ -1,5 +1,5 @@
 /**
- * Remaining free-quota lookup for the MiMo desktop channel.
+ * Quota lookup for the MiMo account channel.
  *
  * `GET {server}/api/user/usage` answers with the account's current allowance:
  *
@@ -8,10 +8,18 @@
  *  "data":{"percent":99.8,"resetDate":"2026-09-30","resetAt":1790782334}}
  * ```
  *
- * `percent` is the **remaining** share of the period's allowance, not the used
- * share: a freshly reset account reads 99.8 rather than 0.2. `resetAt` is a Unix
- * second timestamp for the next refill, and `resetDate` is its calendar day in
- * the account's own timezone.
+ * That shape was measured during the desktop free-quota era, when `percent` was
+ * the **remaining** share of the period's allowance rather than the used share —
+ * a freshly reset account read 99.8, not 0.2. `resetAt` was a Unix second
+ * timestamp for the next refill, and `resetDate` its calendar day in the
+ * account's own timezone.
+ *
+ * **Since the move to subscriptions this has not been re-verified.** The parsing
+ * below stays deliberately tolerant: it reads whatever numeric `percent` the
+ * host returns and passes through `resetAt` / `resetDate` when present, without
+ * asserting a meaning the gateway may no longer intend. The UI wording was made
+ * neutral for the same reason — see `src/client.js`. Run
+ * `tools/probe-gateway.mjs usage` with a subscribed credential to settle it.
  *
  * The probe is read-only and consumes nothing. Every failure path returns
  * undefined rather than throwing — a quota readout must never be able to break

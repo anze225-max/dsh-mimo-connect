@@ -59,7 +59,16 @@ export function apply(ctx, config) {
   let session = new MiMoSession({})
   let currentIdentity
 
-  // Reads the account's remaining desktop free quota. The getter keeps it
+  /**
+   * The credential identity the gateway roster was last fetched for.
+   *
+   * The roster is per-account, not per-turn, so this guards the poll loop from
+   * re-asking the gateway every `pollSeconds`. Cleared when the identity
+   * changes so a different account gets its own roster.
+   */
+  let rosterFetchedFor
+
+  // Reads the account's remaining quota. The getter keeps it
   // pointed at whatever session is current, so a credential swap is picked up
   // without rebuilding the reader.
   const quota = new MiMoQuotaReader({ getSession: () => session })
@@ -109,6 +118,7 @@ export function apply(ctx, config) {
     if (!status.signedIn) {
       if (currentIdentity !== undefined) {
         currentIdentity = undefined
+        rosterFetchedFor = undefined
         session = new MiMoSession({})
         quota.invalidate()
         invalidate()
@@ -119,6 +129,8 @@ export function apply(ctx, config) {
     const identity = store.identityOf(status.credential)
     if (identity !== currentIdentity) {
       currentIdentity = identity
+      // A different account may be entitled to a different roster; refetch it.
+      rosterFetchedFor = undefined
       session = new MiMoSession({ jar: MiMoCredentialStore.jarFor(status.credential) })
       // A different account has a different allowance; drop the old figure.
       quota.invalidate()
@@ -134,6 +146,17 @@ export function apply(ctx, config) {
    * Establishing the session eagerly means the first turn does not pay the
    * redirect-chain latency, and a broken credential surfaces at startup rather
    * than mid-conversation.
+   *
+   * Once a session exists, the model roster is refreshed from the gateway. That
+   * is what keeps the picker honest: the built-in snapshot exists only so the
+   * provider can register before the network is touched, and it is replaced as
+   * soon as the gateway can be asked. A failed refresh is not an error — the
+   * snapshot is a working fallback, and `catalog.source()` keeps reporting
+   * `'builtin'` so the unverified state stays visible.
+   *
+   * The roster is also re-read whenever the credential identity changes (see
+   * `adoptCredential`), because a different account may be entitled to a
+   * different set of models.
    */
   const sync = async () => {
     if (stopped) return
@@ -144,6 +167,25 @@ export function apply(ctx, config) {
     } catch (error) {
       ctx.logger.warn(
         'dsh-mimo-connect: 会话建立失败，将在下次请求时重试',
+        error instanceof Error ? error.message : String(error),
+      )
+      return
+    }
+
+    // Only ask once per credential identity: the roster is not per-turn state,
+    // and the poll loop re-enters here every `pollSeconds`.
+    if (rosterFetchedFor === currentIdentity) return
+    try {
+      const adopted = await catalog.refreshFromGateway(session)
+      rosterFetchedFor = currentIdentity
+      if (adopted) {
+        // The picker must re-list with the gateway's roster, not the snapshot.
+        invalidate()
+        ctx.emit('llm/adapters-updated')
+      }
+    } catch (error) {
+      ctx.logger.warn(
+        'dsh-mimo-connect: 模型清单刷新失败，继续使用内置清单',
         error instanceof Error ? error.message : String(error),
       )
     }
@@ -189,7 +231,7 @@ export function apply(ctx, config) {
     timers.length = 0
   })
 
-  // Serve the remaining free quota to the browser half.
+  // Serve the remaining quota to the browser half.
   //
   // `connection.fetch.register` puts an exact path behind the same
   // browser-session fence every other `/api` route sits behind, so the client

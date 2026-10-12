@@ -26,7 +26,7 @@
 
 import { CookieJar, domainMatches } from './cookie-jar.js'
 
-/** Upstream API server for the desktop-free quota channel. */
+/** Upstream API server for the desktop-app credential channel. */
 export const MIMO_SERVER = 'https://mimo-server-cn.xiaomimimo.com'
 
 /** Xiaomi passport host. */

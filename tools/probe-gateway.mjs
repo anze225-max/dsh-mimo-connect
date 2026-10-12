@@ -37,7 +37,12 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { MiMoCredentialStore } from '../src/credential.js'
 import { MiMoSession, MIMO_SERVER } from '../src/session.js'
-import { FALLBACK_MIMO_MODELS } from '../src/catalog.js'
+import {
+  FALLBACK_MIMO_MODELS,
+  findModelArray,
+  isChatModel,
+  normalizeGatewayModel,
+} from '../src/catalog.js'
 import { SKIP_EXIT_CODE } from '../tests/exit-codes.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -202,32 +207,26 @@ export async function probeModels(session) {
 /**
  * 从网关返回里尽力提取模型 ID 列表。
  *
- * 网关的响应形状还未实测确认，所以这里同时接受几种常见布局，避免因为
- * 包了一层而误判成「没有模型」。
+ * 委托给 `src/catalog.js` 的同一套解析逻辑（`findModelArray` +
+ * `normalizeGatewayModel`），而不是在这里维护第二份。两份实现一旦分叉，
+ * 探针报出的「网关有这些模型」就可能与实际插件采用的不一致，那正是探针
+ * 最不该出错的地方。
  *
  * @param parsed - 已解析的响应体。
  * @returns 模型 ID 列表（可能为空）。
  */
 export function extractModelIds(parsed) {
-  if (parsed === undefined || parsed === null) return []
-  const candidates = []
-  const push = arr => {
-    if (!Array.isArray(arr)) return
-    for (const e of arr) {
-      if (typeof e === 'string') candidates.push(e)
-      else if (e !== null && typeof e === 'object') {
-        const id = e.id ?? e.model ?? e.name ?? e.modelId
-        if (typeof id === 'string') candidates.push(id)
-      }
-    }
-  }
-  push(parsed)
-  push(parsed?.data)
-  push(parsed?.data?.models)
-  push(parsed?.data?.list)
-  push(parsed?.models)
-  push(parsed?.list)
-  return [...new Set(candidates)]
+  const array = findModelArray(parsed)
+  if (array === undefined) return []
+  return [
+    ...new Set(
+      array
+        .filter(isChatModel)
+        .map(normalizeGatewayModel)
+        .filter(e => e !== undefined)
+        .map(e => e.id),
+    ),
+  ]
 }
 
 /**

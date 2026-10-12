@@ -40,18 +40,21 @@ window.__ModuleLoader__.load({
 
     const NS = 'mimo'
 
+    // 文案刻意保持中性：不再声称「桌面端免费额度」。免费额度已经取消，而现在
+    // 走订阅制，`percent` 的语义（剩余 / 已用 / 周期占比）尚未用真实订阅账号
+    // 核实。与其写一个可能已经不准的说明，不如只说这是 MiMo 的额度读数。
     const zh = {
       'quota.label': 'MiMo 剩余 {percent}%',
-      'quota.title': 'MiMo 桌面端免费额度剩余 {percent}%',
+      'quota.title': 'MiMo 额度剩余 {percent}%',
       'quota.reset': '重置于 {date}',
-      'quota.refreshing': '正在刷新 MiMo 剩余额度',
+      'quota.refreshing': '正在刷新 MiMo 额度',
     }
 
     const en = {
       'quota.label': 'MiMo {percent}% left',
-      'quota.title': 'MiMo desktop free quota: {percent}% remaining',
+      'quota.title': 'MiMo quota: {percent}% remaining',
       'quota.reset': 'Resets {date}',
-      'quota.refreshing': 'Refreshing MiMo remaining quota',
+      'quota.refreshing': 'Refreshing MiMo quota',
     }
 
     /**

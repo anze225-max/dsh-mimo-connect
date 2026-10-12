@@ -7,13 +7,22 @@ English | [中文](./README.md)
 [![Node](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24-339933.svg)](https://nodejs.org)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.1.5%20%7C%200.1.6%20%7C%200.1.7%20%7C%200.2.0-rc.2-4B6BFB.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-Bring the models included in the MiMo desktop App into DeepSeek Harness
-automatically, and use them from the DSH conversation window with zero
-configuration.
+Bring MiMo's models into DeepSeek Harness and use them from the DSH
+conversation window.
 
-It runs on the quota you have already signed in for and already paid for inside
-the MiMo client — **no separate API key to apply for, and no extra resident
-program to install**.
+It runs on your own MiMo account's quota — **no separate API key to apply for,
+and no extra resident program to install**.
+
+> ⚠️ **Note: the MiMo desktop free quota has been retired.** This plugin existed
+> to route that free quota into DSH; it now uses whatever quota your account
+> has (subscription or otherwise). The plugin **neither provides nor bypasses**
+> any allowance — whether you can use it depends entirely on your account.
+>
+> Also, the move to subscriptions may have changed the gateway's behaviour, and
+> **some conclusions in this repository date from the free-quota era and have
+> not been re-verified against a subscribed account** — the "Models" and "Known
+> limitations" sections say which. The probe used to verify them ships with the
+> repository.
 
 ![MiMo group in the model picker](./docs/model-picker.png)
 
@@ -196,26 +205,71 @@ The `MIMO_COOKIE_DB` environment variable overrides the cookie database path.
 
 ## Models
 
+The plugin **asks the gateway for its roster first**, and only falls back to the
+built-in snapshot when it cannot:
+
+| Order | Source | Notes |
+|---|---|---|
+| 1 | `GET /api/route/models` | Queried with the credential; the gateway's roster wins |
+| 2 | Built-in snapshot | Used when the gateway is unreachable or not entitled; `status` labels it as unverified |
+
+> **This changed recently.** Measured during the desktop free-quota era, that
+> endpoint returned **404** — "no such route" — so a built-in snapshot was the
+> only option. Re-measured 2026-10-12 it returns **401**, which means "not
+> authenticated" rather than "does not exist". The endpoint is there, so the
+> roster is now fetched at runtime instead of hard-coded.
+>
+> The benefit: when upstream adds, renames, or retires a model, the plugin
+> follows without a code change. And when the network or entitlements fail, the
+> snapshot still lets the provider register and work, while `status` says
+> plainly that the roster in effect is unverified.
+
+The built-in snapshot (degradation only) mirrors the desktop app's
+`model-catalog.json` TEXT entries:
+
 | ID | Display name | Multiplier |
 |---|---|---|
 | `mimo-v2.6-flash` | MiMo V2.6 Flash | x0.40 |
 | `mimo-v2.6-pro` | MiMo V2.6 Pro | x1.00 |
 
 The multiplier is the credit coefficient the desktop app displays. It is
-informational only and does not affect requests.
+informational only and does not affect requests. When the gateway's roster
+carries a multiplier, that one is preferred.
 
-The gateway exposes **no model-listing endpoint** (`/api/route/models` and
-friends all return 404), so this list is a built-in snapshot taken from the
-desktop app's `model-catalog.json` TEXT entries.
+### Reasoning levels: unmeasured under subscriptions, so not declared
 
-### No reasoning-level picker
-
-The model picker will **not** offer Off / Minimal / Low / Medium / High. That is
-intentional.
+The model picker currently offers **no** Off / Minimal / Low / Medium / High.
 
 These models do produce chain-of-thought (returned as `reasoning_content`,
-surfaced as thinking stream events), but the gateway **ignores every control
-that was measured**:
+surfaced as thinking stream events). **Whether the gateway honours any *control*
+over it is an open question:**
+
+- During the desktop free-quota era the measured answer was **no effect** —
+  every `reasoning_effort` level and `thinking.type=disabled` came back
+  indistinguishable (see the archived numbers below);
+- After free quota was retired in favour of subscriptions the gateway's
+  behaviour may have changed, **but that has not been verified against a real
+  subscribed account**.
+
+The plugin therefore **deliberately omits** any `reasoning` declaration:
+guessing wrong would bring back a picker that silently does nothing, which is
+worse than showing none.
+
+**To enable the correct levels after subscribing**, run the measurement probe
+once:
+
+```sh
+node tools/probe-gateway.mjs reasoning --confirm
+```
+
+It holds the prompt fixed and varies only the reasoning parameter, comparing
+chain-of-thought length, and judges the result against criteria **fixed in
+advance**: `high/low ≥ 1.5×`, not all levels equal, and the off switch below
+half the baseline — all three must hold for "reasoning levels work". Decide how
+to declare it from that evidence, rather than guessing first.
+
+<details>
+<summary>Archived numbers (measured during the desktop free-quota era)</summary>
 
 | Parameter | Reasoning tokens |
 |---|---|
@@ -226,8 +280,9 @@ that was measured**:
 | `reasoning_effort: 'low'` | 205 |
 | `enable_thinking: false` | 210 |
 
-None had any effect. Offering a picker that silently does nothing is worse than
-offering none.
+The conclusion then was "none had any effect". These numbers **do not apply to
+subscriptions**; they are kept only to explain why no picker was offered.
+</details>
 
 ## On response speed
 
@@ -245,11 +300,23 @@ The same one-word prompt was measured anywhere between 1 s and 19 s. A bare
 `fetch` bypassing the plugin entirely produces the same distribution, so the
 plugin adds no measurable overhead.
 
-Because the gateway ignores reasoning controls, there is currently **no
-plugin-side way to speed this up**.
+Because whether the gateway honours reasoning controls has not been verified
+against a subscribed account, there is currently **no plugin-side way to speed
+this up**.
 
 ## Known limitations
 
+- **Free desktop quota has been retired in favour of subscriptions.** That free
+  quota was the reason this plugin exists; it is gone. The plugin does not sell
+  or bypass any allowance — whether you can use it depends entirely on whether
+  your account has quota available.
+- **The roster is unverified against a subscribed account.** The plugin now asks
+  the gateway for models, but "which models the gateway returns under a
+  subscription" has not been measured with a real subscribed credential (see
+  "Models").
+- **Whether reasoning levels work is undecided.** The old conclusion (no effect)
+  dates from the free-quota era and may no longer hold; measure it with
+  `tools/probe-gateway.mjs` before relying on it.
 - **Relies on non-public endpoints.** The plugin uses the desktop app's own
   endpoints and credentials, not an official Xiaomi API; upstream changes may
   require follow-up work.
