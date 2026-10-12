@@ -14,12 +14,22 @@
  * timestamp for the next refill, and `resetDate` its calendar day in the
  * account's own timezone.
  *
- * **Since the move to subscriptions this has not been re-verified.** The parsing
- * below stays deliberately tolerant: it reads whatever numeric `percent` the
- * host returns and passes through `resetAt` / `resetDate` when present, without
- * asserting a meaning the gateway may no longer intend. The UI wording was made
- * neutral for the same reason — see `src/client.js`. Run
- * `tools/probe-gateway.mjs usage` with a subscribed credential to settle it.
+ * **Measured again on 2026-10-12 with a real, non-subscribed account**, and the
+ * fields have changed meaning:
+ *
+ * ```json
+ * {"code":0,"message":"success","data":{"percent":0.0,"resetDate":null,"resetAt":null}}
+ * ```
+ *
+ * The endpoint still answers 200, so the credential is fine, but both reset
+ * fields are now `null` and `percent` reads `0.0`. The reading below therefore
+ * stays deliberately tolerant: it passes through whatever numeric `percent` the
+ * host returns and only surfaces `resetAt` / `resetDate` when they are actually
+ * present, so a missing reset date is omitted rather than rendered as a fake
+ * one. It never asserts that `percent` means "remaining", because that is not
+ * confirmed under subscriptions. The UI wording is neutral for the same reason —
+ * see `src/client.js`. `tools/probe-gateway.mjs usage` settles it once a
+ * subscribed credential is available.
  *
  * The probe is read-only and consumes nothing. Every failure path returns
  * undefined rather than throwing — a quota readout must never be able to break

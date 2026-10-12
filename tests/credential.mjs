@@ -10,6 +10,7 @@ import {
   existsSync,
   statSync,
   mkdirSync,
+  readdirSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -130,7 +131,7 @@ console.log('\n== own credential: atomic write + permissions ==')
 
 function readdirSafe(dir) {
   try {
-    return require('node:fs').readdirSync(dir)
+    return readdirSync(dir)
   } catch {
     return []
   }
@@ -175,7 +176,14 @@ console.log('\n== resolve: desktop source ==')
   check('cUserId extracted', cred.cUserId, 'CUID-123')
   check('noise cookie ignored', 'tracking' in cred, false)
   check('read-only: db still present', existsSync(dbPath), true)
-  check('identity is the userId', store.identityOf(cred), '3207174710')
+  // The identity is built from the account id plus a digest of the passToken,
+  // so re-login (same account, new token) is detected as a change.
+  checkFn(
+    'identity is account-scoped',
+    store.identityOf(cred).startsWith('3207174710#'),
+    store.identityOf(cred),
+  )
+  checkFn('identity does not contain the raw token', !store.identityOf(cred).includes('PASS-TOKEN'))
 }
 
 console.log('\n== resolve: plugin source wins over desktop ==')

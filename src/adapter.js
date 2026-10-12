@@ -75,13 +75,31 @@ const REQUEST_IMAGE_BUDGETS = {
  * Convert one catalog entry into the pi-ai model shape DSH consumes.
  *
  * **No reasoning declaration, deliberately.** Advertising `reasoning: true`
- * makes DSH offer an Off/Minimal/Low/Medium/High picker, but the MiMo
- * gateway ignores every reasoning control that was measured:
- * `thinking.type=disabled`, `thinking.enabled=false`, `reasoning_effort`
- * (none/low), `enable_thinking=false` and `chat_template_kwargs` all left the
- * reasoning token count unchanged (176–237 across runs). Showing a picker that
- * silently does nothing is worse than showing none, so the field is omitted
- * and reasoning content still streams through as `thinking_*` events.
+ * makes DSH offer an Off/Minimal/Low/Medium/High picker. Two things are known:
+ *
+ *   - these models *do* produce chain-of-thought, returned as
+ *     `reasoning_content` and surfaced as `thinking_*` stream events;
+ *   - **whether the gateway honours any control over it is still unmeasured.**
+ *
+ * During the desktop free-quota era every control tested left the reasoning
+ * token count unchanged (176–237 across runs): `thinking.type=disabled`,
+ * `thinking.enabled=false`, `reasoning_effort` (none/low), `enable_thinking=false`
+ * and `chat_template_kwargs`.
+ *
+ * That result has **not** been re-confirmed under the subscription model. A
+ * signed-in probe on 2026-10-12 re-ran all six variants against a real account
+ * and every one was refused with `403 membership_required` before any tokens
+ * were generated — the account has no active subscription, so the comparison
+ * produced no data at all. An earlier version of the probe would have reported
+ * that as "all levels identical ⇒ controls ignored", which is a false
+ * conclusion from zero measurements; that reporting bug is fixed in
+ * `tools/probe-gateway.mjs`.
+ *
+ * So the field stays omitted, and the reason is *"not measurable yet"* rather
+ * than *"measured as ineffective"*. Showing a picker that silently does nothing
+ * is worse than showing none; showing one that might work but cannot be checked
+ * is not justified either. Once an account with an active subscription runs
+ * `node tools/probe-gateway.mjs reasoning --confirm`, the result decides it.
  *
  * The `headers` field is the authentication channel: pi-ai spreads
  * `model.headers` into the request it builds from `model.baseUrl`, so the

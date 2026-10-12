@@ -13,10 +13,17 @@
  * 改为订阅制之后，这两条都要重新验证。本脚本用真实凭证把「假设」变成
  * 「实测事实」，并且把结论写成 JSON，便于逐条比对与归档。
  *
- * 实测发现（2026-10-12，匿名探测）
- * -------------------------------
- * `/api/route/models` 现在返回 **401**（需要凭证）而不是 404（不存在）。
- * 这说明模型列表接口**已经存在**，第 1 条结论已经过时。有了凭证就能拿到真实清单。
+ * 实测发现（2026-10-12，真实登录凭证）
+ * -----------------------------------
+ *   1. **模型清单接口确实不存在**，第 1 条结论仍然成立。匿名请求
+ *      `/api/route/models` 会得到 401，但那**不能**说明接口存在：`/api/route/`
+ *      前缀下的一切路径未认证时都返回 401（包括临时编造的路径），前缀之外的
+ *      才返回 404。它是一道前缀级门禁，在路由匹配之前就生效。带有效凭证复测
+ *      16 条候选路径，**全部 404**，而同期 `/api/user/usage` 返回 200。
+ *   2. **推理档位仍然测不出来**，但原因变了：不是「参数被忽略」，而是本账号
+ *      每次请求都在生成 token 之前被 `403 membership_required` 拒绝。零个样本
+ *      不构成结论，所以本脚本现在把这种情况单独报为「测量不足」。
+ *   3. **额度字段语义已变**：`percent` 为 `0.0`，`resetDate` / `resetAt` 为 `null`。
  *
  * 用法
  * ----
@@ -69,19 +76,37 @@ const EFFORT_PROBES = [
  * 判定「推理等级是否真的生效」。
  *
  * 事先把判定标准写死，是为了避免看到数字后临时找理由自我说服。要求：
- *   - high 档的推理长度显著高于 low 档（至少 1.5 倍）；
+ *   - 至少要有两个档位测到值，否则根本不构成比较；
  *   - 各档位不全部相等（全部相等即「参数被忽略」）；
+ *   - high 档的推理长度显著高于 low 档（至少 1.5 倍）；
  *   - 关闭档（none 或 thinking:disabled）能明显压低推理长度。
  *
- * 三条全中才算生效。这条标准直接决定 `adapter.js` 要不要声明 `reasoning`。
+ * 三条实质判据全中才算生效。这条标准直接决定 `adapter.js` 要不要声明
+ * `reasoning`。
+ *
+ * 「测到的档位数不足」必须与「测到了、但参数被忽略」分开报。早先的实现在只有
+ * 一个档位有值时也输出「所有档位的推理长度完全相同 → 参数被忽略」，那是一个
+ * **假结论**：拿一个样本宣称「全都一样」。真实场景里正是这样发生的——
+ * 账号没有订阅时每个请求都被 403 拒绝，只有零个或一个档位留下数字，
+ * 而探针却会报告成「参数被忽略」。这种报告会把人引向错误的结论，
+ * 所以现在单独返回 `insufficient`。
  *
  * @param {Record<string, number>} reasoningTokens - 档位 → 推理 token 数。
- * @returns {{ effective: boolean, reasons: string[] }}
+ * @returns {{ effective: boolean, insufficient?: boolean, reasons: string[] }}
  */
 export function judgeReasoningEffectiveness(reasoningTokens) {
   const reasons = []
   const values = Object.entries(reasoningTokens).filter(([, v]) => typeof v === 'number')
-  if (values.length === 0) return { effective: false, reasons: ['没有可用的测量值'] }
+  if (values.length === 0) {
+    return { effective: false, insufficient: true, reasons: ['没有可用的测量值'] }
+  }
+  if (values.length < 2) {
+    return {
+      effective: false,
+      insufficient: true,
+      reasons: [`只有 ${values.length} 个档位得到可用测量值，不构成比较（其余档位可能被上游拒绝）`],
+    }
+  }
 
   const nums = values.map(([, v]) => v)
   const allEqual = nums.every(n => n === nums[0])
@@ -159,15 +184,25 @@ async function buildSession(credential) {
 /**
  * B1：模型清单探测。
  *
- * 目标端点从「404 不存在」变成了「401 需要凭证」，所以这次要真的问一次网关，
- * 看它到底提供哪些模型。这是 C1 改造的唯一依据。
+ * 目的是确认「网关是否提供模型清单接口」。注意匿名请求会得到 401，但那不代表
+ * 接口存在（见文件头说明），所以这里必须带**真实凭证**去问，并且与一个已知
+ * 存在的路径对照——单看状态码会得出错误结论。
  *
  * @param session - 已建立的会话。
  * @returns 探测结果。
  */
 export async function probeModels(session) {
   const out = { endpoint: '/api/route/models', attempts: [] }
-  for (const path of ['/api/route/models', '/api/route/model/list', '/api/route/v1/models']) {
+  for (const path of [
+    '/api/route/models',
+    '/api/route/model/list',
+    '/api/route/v1/models',
+    // 对照：一个真实存在的接口。它返回 200 才能证明凭证有效，
+    // 否则上面的 404 可能被误读成「没登录」。
+    '/api/user/usage',
+    // 对照：一个肯定不存在的路径，用来展示 404 的形状。
+    '/api/definitely-not-a-route',
+  ]) {
     try {
       const res = await session.request(`${MIMO_SERVER}${path}`, {
         headers: { Accept: 'application/json' },
@@ -201,6 +236,11 @@ export async function probeModels(session) {
     onlyInGateway: liveIds.filter(id => !builtinIds.includes(id)),
     onlyInBuiltin: builtinIds.filter(id => !liveIds.includes(id)),
   }
+  // 明确定性，避免读者把 404 误读成故障。
+  out.verdict =
+    liveIds.length > 0
+      ? '网关提供了模型清单'
+      : '网关没有模型清单接口（候选路径全部 404）→ 使用内置快照，这是预期结果'
   return out
 }
 

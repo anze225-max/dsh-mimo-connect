@@ -8,29 +8,39 @@
  * `/api/models` and `/v1/models` all answered 404, and the only way to know
  * which models existed was to copy the desktop app's own `model-catalog.json`.
  *
- * That premise has since changed. Measured anonymously on 2026-10-12,
- * `/api/route/models` answers **401** rather than 404 — 401 means "not
- * authenticated", 404 would mean "no such route". The endpoint now exists, and
- * a signed-in account can simply ask the gateway what it offers.
+ * A later anonymous probe saw `/api/route/models` answer **401** instead of 404
+ * and this file concluded, wrongly, that the endpoint now existed — reasoning
+ * that 401 means "not authenticated" while 404 would mean "no such route".
+ *
+ * That inference was tested against a real signed-in credential on 2026-10-12
+ * and **it does not hold**. What the gateway actually does:
+ *
+ *   - every path under `/api/route/` answers 401 without a session — including
+ *     invented ones like `/api/route/model/config` that certainly do not exist;
+ *   - every path outside that prefix answers 404, again including invented ones.
+ *
+ * So 401 here is a **prefix-wide auth fence evaluated before routing**, not
+ * evidence that a route exists. With a valid session `/api/route/models`,
+ * `/api/route/model/list` and 14 other candidate paths all answered 404, while
+ * the genuinely existing `/api/user/usage` answered 200 in the same breath.
+ * The listing endpoint does not exist, and it never did.
  *
  * Why this module no longer guesses
  * ---------------------------------
- * Because the roster is now knowable at runtime, hard-coding it would be a
- * liability: a snapshot goes stale the moment the provider adds, renames, or
- * retires a model, and there is no way for a reader of this file to tell
- * whether its contents are still true.
+ * The gateway-first path is kept, but not because an endpoint is expected to be
+ * found: it is kept so that the plugin will adopt a real roster automatically if
+ * Xiaomi ever publishes one, without a code change. Until then it must be
+ * understood as a **probe that normally finds nothing**. The 404 fallbacks are
+ * therefore the normal, expected outcome, not a malfunction.
  *
- * So the catalog is **gateway-first, snapshot-fallback**:
- *
- *   - ask the gateway; if it answers with models, those are the truth;
- *   - if it cannot be reached, or answers with nothing usable, fall back to the
- *     built-in snapshot and say so through `source()`.
- *
- * The snapshot is therefore a degradation path, not the source of truth. It is
- * deliberately kept small and its values are conservative; `source()` reports
- * `'builtin'` whenever it is what is in effect, so callers (and the `status`
- * and `doctor` commands) can tell the user the roster is unverified rather than
- * silently presenting stale data as fact.
+ * The snapshot is the practical source of truth. It is verified rather than
+ * guessed: on 2026-10-12 both built-in ids resolved past model validation and
+ * were stopped only by the membership gate (`403 membership_required`), whereas
+ * near-miss ids (`mimo-v2.5-flash`, `mimo-v2.6-ultra`, `mimo-v2.6`) and an
+ * unrelated one (`gpt-4o`) were rejected earlier with
+ * `400 chat_model_not_public`. Reaching the membership gate is what shows the
+ * names are right. `source()` still reports `'builtin'`, because that is what is
+ * in effect.
  *
  * Only chat models belong here: the desktop app's ASR / TTS / image entries
  * cannot serve a DSH turn, so gateway entries that are not chat-shaped are
@@ -385,9 +395,13 @@ export class MiMoCatalog {
 /**
  * Endpoints tried, in order, when asking the gateway for its roster.
  *
- * `/api/route/models` is first because it is the sibling of the chat route the
- * plugin already uses, and because it is the one confirmed to answer 401
- * (rather than 404) when unauthenticated. The others are cheap fallbacks in
- * case the route was renamed.
+ * **Measured on 2026-10-12 with a valid signed-in credential: every one of these
+ * answers 404.** So does every other candidate that was tried (16 in total,
+ * including `/api/route/models`). The listing endpoint does not exist — see the
+ * module comment for why a 401 seen anonymously does *not* contradict that.
+ *
+ * The list is kept anyway, and deliberately ordered by plausibility, so that if
+ * Xiaomi ever publishes a roster the plugin adopts it on the next sync without a
+ * code change. Reaching the snapshot fallback is the expected outcome today.
  */
 export const GATEWAY_MODEL_PATHS = ['/api/route/models', '/api/route/model/list', '/api/models']

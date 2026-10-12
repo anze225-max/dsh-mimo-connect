@@ -136,6 +136,19 @@ export function apply(ctx, config) {
       quota.invalidate()
       invalidate()
       ctx.emit('llm/adapters-updated')
+      return status.credential
+    }
+
+    // The stored credential is unchanged, but the jar may have been emptied from
+    // the server side: a rejected credential is revoked with `passToken=EXPIRED`,
+    // which the jar deletes. Identity comparison cannot see that, because it only
+    // reads the file on disk — so without this the plugin would sit in
+    // "signed in but can never mint" until DSH restarted. Re-seed when the
+    // passport cookie the mint depends on has gone missing.
+    if (!session.hasPassport()) {
+      session = new MiMoSession({ jar: MiMoCredentialStore.jarFor(status.credential) })
+      quota.invalidate()
+      invalidate()
     }
     return status.credential
   }

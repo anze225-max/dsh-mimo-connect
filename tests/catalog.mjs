@@ -241,8 +241,10 @@ console.log('\n== findModelArray 兼容多种信封 ==')
   check('null 安全', findModelArray(null), undefined)
 }
 
-console.log('\n== 端点顺序：已确认的 401 端点排第一 ==')
+console.log('\n== 端点顺序 ==')
 {
+  // 顺序只是「可能性排序」：实测这些端点目前全部 404（网关没有清单接口），
+  // 保留它们是为了万一将来上线时无需改代码即可跟随。
   check('首选 /api/route/models', GATEWAY_MODEL_PATHS[0], '/api/route/models')
 }
 

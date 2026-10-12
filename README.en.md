@@ -18,11 +18,20 @@ and no extra resident program to install**.
 > has (subscription or otherwise). The plugin **neither provides nor bypasses**
 > any allowance — whether you can use it depends entirely on your account.
 >
-> Also, the move to subscriptions may have changed the gateway's behaviour, and
-> **some conclusions in this repository date from the free-quota era and have
-> not been re-verified against a subscribed account** — the "Models" and "Known
-> limitations" sections say which. The probe used to verify them ships with the
-> repository.
+> **This has been measured with a real, non-subscribed account (2026-10-12)**,
+> and the result is unambiguous: signing in, exchanging the `serviceToken` and
+> reading the quota all work, but every actual inference is refused before a
+> single token is generated:
+>
+> ```
+> HTTP 403  {"error":{"code":"membership_required","biz_code":30012,
+>            "message":"未开通会员或会员已到期，请订阅后使用"}}
+> ```
+>
+> In other words **the plugin reaches the gateway's door but cannot get in** —
+> which is exactly what "this plugin provides no allowance" means in practice.
+> One conclusion (whether reasoning levels work) remains **unmeasurable** because
+> of that gate; see the "Models" section.
 
 ![MiMo group in the model picker](./docs/model-picker.png)
 
@@ -111,17 +120,21 @@ dsh plugin --profile desktop exec dsh-mimo-connect logout     # delete the plugi
 
 ### About `login`
 
+> **`login` requires you to copy three values by hand. There is no way around it.**
+
 Xiaomi's passport endpoint **rejects every callback URL a third-party
 integration can offer** (it answers `Callback连接不合法`), and `passToken` is
-`HttpOnly`, so page JavaScript cannot read it either. A one-click OAuth-style
-login is therefore not available.
+`HttpOnly`, so page JavaScript cannot read it either. Together those two
+constraints leave no room for a one-click login.
 
 `login` prints a step-by-step guide instead: open the sign-in page, copy three
-values from the browser devtools (Application → Cookies), paste them back. The
-plugin verifies the credential actually works before saving it.
+values from the browser devtools (Application → Cookies), paste them back.
+Pasting a whole `passToken=xxxx` row works too — the prefix is stripped
+automatically — and `cUserId` / `userId` may be left blank; only `passToken` is
+required. The plugin verifies the credential actually works **before** saving it.
 
 **If you already run the MiMo desktop app, you do not need `login`** — its
-sign-in is reused as-is.
+sign-in is reused as-is, with no prompt of any kind.
 
 ## How it works
 
@@ -180,13 +193,36 @@ The data comes from the client's own usage endpoint:
 
 ```text
 GET mimo-server-cn.xiaomimimo.com/api/user/usage
-→ {"code":0,"data":{"percent":99.8,"resetDate":"2026-09-30","resetAt":1790782334}}
+→ {"code":0,"message":"success","data":{"percent":0.0,"resetDate":null,"resetAt":null}}
 ```
 
-`percent` is the **remaining** share, not the used share. The read is read-only
-and consumes nothing; a successful reading is cached for 60 seconds and a failure
-is backed off for 15. Every failure path simply shows nothing — it can never
-affect inference.
+> ### ⚠️ These fields have changed meaning under subscriptions
+>
+> The body above is the raw response from a real, **non-subscribed** account on
+> 2026-10-12. Compared with the free-quota-era record:
+>
+> | Field | Free-quota era | Subscriptions (unsubscribed account) |
+> |---|---|---|
+> | `percent` | `99.8` = **remaining** % | `0.0` |
+> | `resetDate` | `"2026-09-30"` | **`null`** |
+> | `resetAt` | `1790782334` | **`null`** |
+>
+> The endpoint still answers **200** (the credential is fine), but the reset
+> fields are now `null`. So:
+>
+> - **the reset date is not shown on an unsubscribed account** — the plugin
+>   already omits the field when absent, so it never renders a fabricated date;
+> - `percent: 0.0` with no subscription most plausibly means "no allowance
+>   available", but that has **not** been verified on a subscribed account. The
+>   UI wording therefore stays neutral and does not assert whether the number is
+>   "remaining" or "used".
+>
+> Settling the semantics needs a **subscribed** account running
+> `node tools/probe-gateway.mjs usage`.
+
+The read is read-only and consumes nothing; a successful reading is cached for 60
+seconds and a failure is backed off for 15. Every failure path simply shows
+nothing — it can never affect inference.
 
 The node half registers an `/api/mimo.quota` route (behind the same browser
 session fence as every other `/api` route) and the browser half mounts a
@@ -210,31 +246,64 @@ built-in snapshot when it cannot:
 
 | Order | Source | Notes |
 |---|---|---|
-| 1 | `GET /api/route/models` | Queried with the credential; the gateway's roster wins |
-| 2 | Built-in snapshot | Used when the gateway is unreachable or not entitled; `status` labels it as unverified |
+| 1 | `GET /api/route/models` and friends | Attempted with the credential |
+| 2 | Built-in snapshot | Where it always lands in practice; `status` reports `builtin` |
 
-> **This changed recently.** Measured during the desktop free-quota era, that
-> endpoint returned **404** — "no such route" — so a built-in snapshot was the
-> only option. Re-measured 2026-10-12 it returns **401**, which means "not
-> authenticated" rather than "does not exist". The endpoint is there, so the
-> roster is now fetched at runtime instead of hard-coded.
+> ### ⚠️ Correction: the gateway has **no** model-listing endpoint
 >
-> The benefit: when upstream adds, renames, or retires a model, the plugin
-> follows without a code change. And when the network or entitlements fail, the
-> snapshot still lets the provider register and work, while `status` says
-> plainly that the roster in effect is unverified.
+> This file previously claimed that `/api/route/models` answering **401** proved
+> the endpoint existed. **That was wrong, and a real credential has now
+> disproved it.**
+>
+> The mistake was treating 401 as evidence that a route exists. Measured with a
+> real signed-in credential on 2026-10-12:
+>
+> - **everything** under the `/api/route/` prefix answers 401 without a session —
+>   including invented paths like `/api/route/model/config` that certainly do not
+>   exist;
+> - everything outside that prefix answers 404, invented paths included.
+>
+> So the 401 is a **prefix-wide auth fence evaluated before routing**. It cannot
+> be used to decide whether a route exists.
+>
+> With a valid credential, `/api/route/models`, `/api/route/model/list` and 14
+> other candidate paths **all answered 404**, while the genuinely existing
+> `/api/user/usage` answered **200** in the same run — proving the credential was
+> fine and the 404s were not an auth problem. **The endpoint does not exist.**
+>
+> The plugin still asks first, but the purpose has changed: not to find an
+> endpoint that works today, but so that if Xiaomi ever publishes a roster the
+> plugin adopts it with no code change. Until then, landing on the snapshot is
+> the **normal, expected** outcome rather than a malfunction.
 
-The built-in snapshot (degradation only) mirrors the desktop app's
-`model-catalog.json` TEXT entries:
+The built-in snapshot is therefore what is actually in use — and it is
+**measured**, not guessed:
 
 | ID | Display name | Multiplier |
 |---|---|---|
 | `mimo-v2.6-flash` | MiMo V2.6 Flash | x0.40 |
 | `mimo-v2.6-pro` | MiMo V2.6 Pro | x1.00 |
 
+**Why those two ids are known to still be valid** — a control experiment with a
+real credential (2026-10-12):
+
+| Model id | Response | Meaning |
+|---|---|---|
+| `mimo-v2.6-flash` | `403 membership_required` | passed model validation, stopped by the **membership gate** |
+| `mimo-v2.6-pro` | `403 membership_required` | same |
+| `mimo-v2.5-flash` | `400 chat_model_not_public` | rejected at model validation |
+| `mimo-v2.6-ultra` | `400 chat_model_not_public` | same |
+| `mimo-v2.6` | `400 chat_model_not_public` | same |
+| `gpt-4o` | `400 chat_model_not_public` | same |
+
+The **status code is the signal**: near-miss ids fail at model validation (400),
+while the two snapshot ids get further and are only stopped by the membership
+gate (403). Reaching that gate shows the names are correct — the 403 text is
+"membership not active or expired, please subscribe", which says nothing about
+the model name.
+
 The multiplier is the credit coefficient the desktop app displays. It is
-informational only and does not affect requests. When the gateway's roster
-carries a multiplier, that one is preferred.
+informational only and does not affect requests.
 
 ### Reasoning levels: unmeasured under subscriptions, so not declared
 
@@ -242,21 +311,26 @@ The model picker currently offers **no** Off / Minimal / Low / Medium / High.
 
 These models do produce chain-of-thought (returned as `reasoning_content`,
 surfaced as thinking stream events). **Whether the gateway honours any *control*
-over it is an open question:**
+over it is still undecided:**
 
 - During the desktop free-quota era the measured answer was **no effect** —
   every `reasoning_effort` level and `thinking.type=disabled` came back
   indistinguishable (see the archived numbers below);
-- After free quota was retired in favour of subscriptions the gateway's
-  behaviour may have changed, **but that has not been verified against a real
-  subscribed account**.
+- On 2026-10-12 all six variants were re-run against a real signed-in account
+  and **every one was refused with `403 membership_required` before generating a
+  single token**. The account has no active subscription, so the re-run produced
+  **no comparable data at all**.
 
-The plugin therefore **deliberately omits** any `reasoning` declaration:
-guessing wrong would bring back a picker that silently does nothing, which is
-worse than showing none.
+So the field is omitted because it is **"not measurable yet"**, not because it
+was **"measured as ineffective"**. Those are different claims, and this file
+previously conflated them.
 
-**To enable the correct levels after subscribing**, run the measurement probe
-once:
+> That re-run also exposed a bug in the probe, now fixed: the old implementation
+> reported "one level has a value" as "all levels are identical ⇒ controls
+> ignored". That is a conclusion drawn from zero samples. It now reports that
+> case separately as `insufficient`.
+
+**With an account that has an active subscription**, one run settles it:
 
 ```sh
 node tools/probe-gateway.mjs reasoning --confirm
@@ -264,9 +338,9 @@ node tools/probe-gateway.mjs reasoning --confirm
 
 It holds the prompt fixed and varies only the reasoning parameter, comparing
 chain-of-thought length, and judges the result against criteria **fixed in
-advance**: `high/low ≥ 1.5×`, not all levels equal, and the off switch below
-half the baseline — all three must hold for "reasoning levels work". Decide how
-to declare it from that evidence, rather than guessing first.
+advance**: at least two levels must have measurements, not all levels equal,
+`high/low ≥ 1.5×`, and the off switch below half the baseline. Decide how to
+declare it from that evidence, rather than guessing first.
 
 <details>
 <summary>Archived numbers (measured during the desktop free-quota era)</summary>
@@ -310,21 +384,33 @@ this up**.
   quota was the reason this plugin exists; it is gone. The plugin does not sell
   or bypass any allowance — whether you can use it depends entirely on whether
   your account has quota available.
-- **The roster is unverified against a subscribed account.** The plugin now asks
-  the gateway for models, but "which models the gateway returns under a
-  subscription" has not been measured with a real subscribed credential (see
-  "Models").
-- **Whether reasoning levels work is undecided.** The old conclusion (no effect)
-  dates from the free-quota era and may no longer hold; measure it with
-  `tools/probe-gateway.mjs` before relying on it.
+- **Without a subscription, inference is refused outright.** Measured with a real
+  account: sign-in and session establishment work, but every inference returns
+  `403 membership_required` ("membership not active or expired, please
+  subscribe"). That is an account entitlement, not a plugin defect.
+- **The gateway has no model-listing endpoint (measured and confirmed).** All 16
+  candidate paths returned 404 under a valid credential; the plugin still asks,
+  but in practice always uses the built-in snapshot. The snapshot's two model ids
+  **are confirmed still valid** by a control experiment (see "Models").
+- **Whether reasoning levels work remains undetermined.** The free-quota-era
+  conclusion was "no effect"; the 2026-10-12 re-run against a real credential was
+  refused with `403` for all six variants before any tokens were generated, so it
+  produced **no comparable data**. The field is omitted because it is *not
+  measurable yet*, not because it was *measured as ineffective*. A subscribed
+  account running the probe settles it.
 - **Relies on non-public endpoints.** The plugin uses the desktop app's own
   endpoints and credentials, not an official Xiaomi API; upstream changes may
   require follow-up work.
 - **Response speed depends on upstream.** Latency varies widely and is outside
   the plugin's control.
-- **The quota readout uses the same non-public endpoints.** If
-  `/api/user/usage` changes or disappears, the readout silently stops appearing;
-  model calls are unaffected.
+- **The quota fields changed meaning under subscriptions.** `/api/user/usage`
+  still answers 200, but on an unsubscribed account `percent` is `0.0` while
+  `resetDate`/`resetAt` are `null`, so no reset date is shown (the plugin omits
+  absent fields rather than rendering a fabricated date). Whether `percent` means
+  "remaining" or "used" is not yet verified on a subscribed account.
+- **`login` requires copying cookie values by hand.** `passToken` is `HttpOnly`
+  and passport rejects third-party callbacks, so a one-click sign-in is
+  impossible. This is a design constraint, not an outstanding defect.
 - **Credential lifetime.** `passToken` was measured at 30 days; after that you
   must sign in again (desktop app or `login`).
 - **`serviceToken` needs short-term renewal.** Handled within the session, with
@@ -340,7 +426,26 @@ node tests/run.mjs            # every suite
 node tests/run.mjs client     # browser half only
 node tests/run.mjs layout     # layout parity only
 node tests/run.mjs cookie     # suites matching "cookie"
+node tests/run.mjs cli        # the command-line entry point
+node tests/run.mjs credential # both credential sources
 ```
+
+Each credential source (the desktop app's cookie database, and the plugin's own
+`login`) has its own end-to-end suite:
+
+- `tests/credential-paths.mjs` drives the real `apply()` against an upstream
+  double that is **strict about `passToken`**, so "the jar was never seeded"
+  fails instead of passing quietly. A lenient double hides exactly that class of
+  bug.
+- `tests/cli.mjs` runs the real `bin/cli.js` in real subprocesses, replacing only
+  the network. The `login` prompts, `logout`'s deletion semantics, and the exit
+  codes of `status` / `doctor` / `verify` are all pinned there.
+- `tests/session-recovery.mjs` requires that a server-side revocation
+  (`passToken=EXPIRED`) heals itself. That scenario comes from the real server:
+  hop-by-hop probing showed passport revoking sessions exactly that way, while
+  the stored credential is unchanged — so the old identity-comparison logic never
+  re-seeded the jar. The assertions include "a revocation actually happened", so
+  the suite cannot pass by failing to reach that path.
 
 Suites report three distinct outcomes, never conflated:
 

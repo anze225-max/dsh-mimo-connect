@@ -23,7 +23,7 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { MiMoCredentialStore, writeOwnCredential, OWN_AUTH_FILENAME } from '../src/credential.js'
-import { MiMoSession, MIMO_SERVER } from '../src/session.js'
+import { MiMoSession } from '../src/session.js'
 import { FALLBACK_MIMO_MODELS } from '../src/catalog.js'
 
 const ACCOUNT = 'https://account.xiaomi.com'
@@ -43,7 +43,11 @@ function usage() {
   1. ${OWN_AUTH_FILENAME}（插件自己的登录）
   2. Xiaomi MiMo 桌面端的 cookie（只读复用）
 
-桌面端已登录时无需任何操作。`)
+桌面端已登录时无需任何操作。
+
+注意: \`login\` 需要你**手动复制**三个 cookie 值粘贴进来，无法做成
+      点一下自动登录（passToken 是 HttpOnly，且 passport 拒绝第三方回调）。
+      运行 \`login\` 时会给出逐步指引。`)
 }
 
 /** Serialize a status document for humans. */
@@ -110,35 +114,83 @@ async function cmdStatus(argv) {
   process.exitCode = status.signedIn ? 0 : 1
 }
 
+/**
+ * Prompt for one value, reading from the readline iterator.
+ *
+ * Writing the prompt and pulling the next line are deliberately kept together:
+ * the async iterator must be advanced by the same code that announced the
+ * prompt, so a caller cannot accidentally print a prompt it never reads for.
+ *
+ * @param prompt - text to show before waiting.
+ * @param answers - the readline async iterator.
+ * @returns the trimmed value, or an empty string at EOF.
+ */
+async function askFor(prompt, answers) {
+  stdout.write(prompt)
+  const next = await answers.next()
+  if (next.done === true) return ''
+  return typeof next.value === 'string' ? next.value.trim() : ''
+}
+
 /** `login` subcommand. */
 async function cmdLogin() {
   console.log('=== MiMo 插件登录 ===\n')
-  console.log('说明：小米 passport 不接受第三方回调地址，且 passToken 是 HttpOnly，')
-  console.log('因此无法做成「点一下自动登录」。请按下面步骤操作一次即可。\n')
 
-  console.log('第 1 步：在浏览器打开下面的地址并完成登录')
+  // 这一段是**必须**的说明，不是客套话：`passToken` 是 HttpOnly，
+  // 页面里的 JavaScript 读不到它；而小米 passport 又拒绝一切第三方回调地址
+  // （返回「Callback连接不合法」）。两个限制叠在一起，意味着**没有任何**办法
+  // 让插件「点一下就自动登录」——这一步只能由人把值复制过来。
+  //
+  // 既然绕不过去，就必须把「为什么要手动复制」和「具体复制哪几个值」讲清楚，
+  // 否则用户只会看到一个莫名其妙的输入提示。
+  console.log('这一步需要你**手动复制**三个值粘贴进来。这是设计上无法避免的，原因：\n')
+  console.log('  · passToken 是 HttpOnly，网页里的脚本读不到它；')
+  console.log('  · 小米 passport 不接受第三方回调地址（会返回「Callback连接不合法」）。')
+  console.log('  两条限制叠加，就没有「点一下就自动登录」的余地。\n')
+  console.log('如果本机装了 MiMo 桌面端并已登录，则**不需要**这一步 ——')
+  console.log('直接退出本命令，插件会自行只读复用桌面端的登录状态。\n')
+
+  console.log('--- 操作步骤 ---\n')
+  console.log('第 1 步：用浏览器打开下面这个地址，并完成登录')
   console.log(`  ${ACCOUNT}/pass/serviceLogin?sid=mimopc\n`)
-  console.log('第 2 步：登录成功后，按 F12 打开开发者工具')
-  console.log('  → Application（应用程序）标签')
-  console.log('  → Storage → Cookies → https://account.xiaomi.com')
-  console.log('  → 找到 passToken / cUserId / userId 三行\n')
-  console.log('第 3 步：把三个值依次粘贴到下面。\n')
+  console.log('第 2 步：登录成功后，在同一个浏览器里按 F12 打开开发者工具')
+  console.log('  → 切到 Application（应用程序）标签')
+  console.log('  → 左侧 Storage → Cookies → https://account.xiaomi.com')
+  console.log('  → 在列表里找到 passToken / cUserId / userId 这三行\n')
+  console.log('第 3 步：把这三行的值依次粘贴到下面。')
+  console.log('  · 直接双击 Cookie 的 Value 单元格复制即可；')
+  console.log('  · 粘贴成 `passToken=xxxx` 这种整行形式也可以，插件会自动去掉前缀；')
+  console.log('  · cUserId 与 userId 可以留空，只有 passToken 是必需的。\n')
 
   const rl = createInterface({ input: stdin, output: stdout })
-  let passToken = ''
-  let cUserId = ''
-  let userId = ''
+  /** @type {string[]} */
+  const answers = []
   try {
-    passToken = (await rl.question('passToken: ')).trim()
-    if (passToken.length === 0) {
-      console.error('\n未输入 passToken，已取消。')
-      process.exitCode = 1
-      return
+    // Read answers with the async iterator rather than `rl.question()`.
+    //
+    // `question()` resolves one line by attaching a one-shot `line` listener.
+    // When stdin is not a TTY the whole input is buffered and readline emits
+    // every line in the same tick, so all of them arrive before the *second*
+    // `question()` has attached its listener: the first is captured, the rest
+    // are dropped, and the command hangs forever on an await that can never
+    // settle. That made `login` unusable with piped input — and `dsh plugin
+    // exec`, the documented way to run it, does not guarantee a TTY.
+    //
+    // The async iterator instead pulls from the queue readline fills, so it
+    // sees every buffered line and still ends cleanly at EOF.
+    const iterator = rl[Symbol.asyncIterator]()
+    for (const label of ['passToken: ', 'cUserId（可留空）: ', 'userId（可留空）: ']) {
+      answers.push(await askFor(label, iterator))
     }
-    cUserId = (await rl.question('cUserId（可留空）: ')).trim()
-    userId = (await rl.question('userId（可留空）: ')).trim()
   } finally {
     rl.close()
+  }
+
+  const [passTokenRaw = '', cUserIdRaw = '', userIdRaw = ''] = answers
+  if (passTokenRaw.length === 0) {
+    console.error('\n未输入 passToken，已取消。')
+    process.exitCode = 1
+    return
   }
 
   // Strip a pasted "name=value" pair, which is what the devtools row shows.
@@ -146,9 +198,9 @@ async function cmdLogin() {
     const prefix = `${name}=`
     return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
   }
-  passToken = unwrap(passToken, 'passToken')
-  cUserId = unwrap(cUserId, 'cUserId')
-  userId = unwrap(userId, 'userId')
+  const passToken = unwrap(passTokenRaw, 'passToken')
+  const cUserId = unwrap(cUserIdRaw, 'cUserId')
+  const userId = unwrap(userIdRaw, 'userId')
 
   const store = new MiMoCredentialStore()
   const path = store.ownPath()

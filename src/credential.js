@@ -33,6 +33,7 @@ import {
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { CookieJar } from './cookie-jar.js'
 
@@ -102,40 +103,75 @@ export function desktopCookieCandidates(env = process.env) {
 }
 
 /**
+ * Read every row of a cookie database, read-only.
+ *
+ * Opening read-only is what keeps the "never modify the desktop app" promise:
+ * a read-only handle cannot checkpoint or vacuum the file it is pointed at.
+ * The live database can be opened this way even while Chromium holds it open in
+ * WAL mode (measured), which is what makes the fallback in `readDesktopCookies`
+ * usable at all.
+ *
+ * @param path - path to a cookie database.
+ * @returns the rows, or undefined when the file cannot be read as one.
+ */
+function readCookieRows(path) {
+  if (!existsSync(path)) return undefined
+  try {
+    const db = new DatabaseSync(path, { readOnly: true })
+    try {
+      return db.prepare('SELECT host_key, name, value FROM cookies').all()
+    } finally {
+      db.close()
+    }
+  } catch {
+    // Not a database, not a cookie table, or unreadable. The caller decides
+    // whether that is final.
+    return undefined
+  }
+}
+
+/**
  * Read the passport cookies out of a Chromium cookie database.
  *
  * The database is copied to a temporary file first: the desktop app holds it
- * open while running, and reading in place can fail or block.
+ * open while running, and copying avoids interleaving a read with its writes.
+ *
+ * The copy is only an optimization, never the sole route to the data. Chromium
+ * commits new cookies into the `-wal` sidecar and only folds them back into the
+ * main file at a checkpoint, so a copy that misses `-wal` opens *successfully*
+ * but reports `no such table: cookies` — measured, and the opposite of what the
+ * previous comment here claimed. A failed sidecar copy therefore used to
+ * degrade all the way to "no credential on this machine", which is precisely
+ * the zero-prompt case this module exists to serve. When the copy cannot be
+ * read, the original file is opened read-only instead.
  *
  * @param dbPath - path to the `Cookies` SQLite file.
+ * @param {object} [options] - optional overrides for tests.
+ * @param {typeof copyFileSync} [options.copyFile] - copier, to exercise a failed sidecar copy.
  * @returns `{ domain: { name: value } }`, or undefined when unreadable/empty.
  */
-export function readDesktopCookies(dbPath) {
+export function readDesktopCookies(dbPath, options = {}) {
   if (!existsSync(dbPath)) return undefined
 
+  const copyFile = options.copyFile ?? copyFileSync
   const scratch = join(tmpdir(), `mimo-ck-${process.pid}-${Date.now()}.db`)
   const sidecars = ['', '-journal', '-wal', '-shm']
   const copied = []
   for (const suffix of sidecars) {
     if (existsSync(dbPath + suffix)) {
       try {
-        copyFileSync(dbPath + suffix, scratch + suffix)
+        copyFile(dbPath + suffix, scratch + suffix)
         copied.push(scratch + suffix)
       } catch {
-        // A locked sidecar is not fatal; the main file carries the cookies.
+        // Recorded implicitly: the read below falls back to the original file
+        // when the scratch copy turns out to be incomplete.
       }
     }
   }
-  if (!existsSync(scratch)) return undefined
 
   try {
-    const db = new DatabaseSync(scratch, { readOnly: true })
-    let rows
-    try {
-      rows = db.prepare('SELECT host_key, name, value FROM cookies').all()
-    } finally {
-      db.close()
-    }
+    const rows = readCookieRows(scratch) ?? readCookieRows(dbPath)
+    if (rows === undefined) return undefined
 
     const byDomain = {}
     let seen = 0
@@ -335,15 +371,45 @@ export class MiMoCredentialStore {
   }
 
   /**
-   * Stable identity string for one credential, used to detect account changes.
+   * Stable identity string for one credential, used to detect credential
+   * changes and decide whether the held session and roster still apply.
+   *
+   * Built from the account id when one is present, plus a digest of the
+   * `passToken`. The digest contributes two things the account id alone cannot:
+   *
+   *   - `login` explicitly lets the user leave `cUserId`/`userId` blank, since
+   *     `passToken` is the only field the STS exchange needs. An identity that
+   *     returned `undefined` for such a credential was a real defect: `index.js`
+   *     rebuilds the session jar only when the identity *changes*, so a blank-id
+   *     credential resolved, resolved again to `undefined`, compared equal to the
+   *     initial `undefined`, and left the jar empty forever — never sending the
+   *     `passToken` the mint depends on.
+   *   - re-signing-in keeps `userId` but issues a new `passToken`. Without the
+   *     digest the identity looked unchanged, so a running plugin kept using the
+   *     expired token and the documented "re-login to recover" path did nothing
+   *     until DSH restarted.
+   *
+   * A digest is used rather than the token itself so this value cannot leak the
+   * secret if it is ever logged. It stays stable for an unchanged credential,
+   * which is what stops the poll loop from re-minting the session every
+   * `pollSeconds`.
    *
    * @param credential - the credential.
-   * @returns an opaque identity, or undefined when it carries no user id.
+   * @returns an opaque identity, or undefined when there is nothing to identify.
    */
   identityOf(credential) {
-    if (credential === undefined) return undefined
-    const id = credential.userId.length > 0 ? credential.userId : credential.cUserId
-    return id.length > 0 ? id : undefined
+    if (credential === undefined || credential === null) return undefined
+    const passToken = typeof credential.passToken === 'string' ? credential.passToken : ''
+    if (passToken.length === 0) return undefined
+
+    const id =
+      typeof credential.userId === 'string' && credential.userId.length > 0
+        ? credential.userId
+        : typeof credential.cUserId === 'string' && credential.cUserId.length > 0
+          ? credential.cUserId
+          : ''
+    const digest = createHash('sha256').update(passToken).digest('hex').slice(0, 16)
+    return id.length > 0 ? `${id}#${digest}` : `passToken#${digest}`
   }
 
   /**

@@ -42,6 +42,9 @@ export const MIMO_USER_AGENT = 'MiClaw/1.0'
 /** Domain the `serviceToken` is issued for. */
 const SERVER_HOST = new URL(MIMO_SERVER).hostname
 
+/** Passport host that holds the `passToken` the mint depends on. */
+const PASSPORT_HOST = new URL(XIAOMI_ACCOUNT).hostname
+
 /** How long a minted serviceToken is trusted before a proactive refresh. */
 const SERVICE_TOKEN_TTL_MS = 10 * 60 * 1000
 
@@ -103,6 +106,26 @@ export class MiMoSession {
   /** Current `serviceToken`, or undefined when not established. */
   serviceToken() {
     return this.#cookieForServer('serviceToken')
+  }
+
+  /**
+   * Whether the jar still holds the passport `passToken`.
+   *
+   * The gateway revokes a rejected credential by answering with
+   * `passToken=EXPIRED`, which the jar honours by deleting the entry. After that
+   * the session can never mint again, no matter how often it is asked: the
+   * passport hop has nothing to send. Callers use this to notice that the jar
+   * was emptied from the server side and re-seed it from the stored credential.
+   *
+   * @returns true when a `passToken` is still available for the passport host.
+   */
+  hasPassport() {
+    for (const domain of this.#jar.domains()) {
+      if (!domainMatches(domain, PASSPORT_HOST)) continue
+      const value = this.#jar.get(domain, 'passToken')
+      if (typeof value === 'string' && value.length > 0) return true
+    }
+    return false
   }
 
   /** Whether the held token is missing or past its trust window. */

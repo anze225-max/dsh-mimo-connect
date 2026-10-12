@@ -111,6 +111,29 @@ console.log('\n== judgeReasoningEffectiveness：判定推理等级是否生效 =
 
   // 边界：空输入
   check('空对象 → 判定无效', judgeReasoningEffectiveness({}).effective, false)
+
+  // 回归：只有一个档位留下数字时，**不能**说成「所有档位相同 → 参数被忽略」。
+  // 那是从单个样本宣称「全都一样」。真实发生过的情形：账号没有订阅，每个请求
+  // 都被 403 拒绝，于是 reasoningChars 几乎为空，而旧实现会报告成
+  // 「参数被忽略」——一个把人引向错误方向的结论。
+  const single = judgeReasoningEffectiveness({ baseline: 200 })
+  check('只有一个档位有值 → 判定无效', single.effective, false)
+  check('并把原因标为测量不足', single.insufficient, true)
+  checkFn(
+    '且不谎称「参数被忽略」',
+    !single.reasons.some(r => r.includes('忽略')),
+    JSON.stringify(single.reasons),
+  )
+
+  const none = judgeReasoningEffectiveness({})
+  check('零个测量值也标为测量不足', none.insufficient, true)
+
+  // 对照：真的测到了多个档位且全相等，才允许说「参数被忽略」。
+  checkFn(
+    '多个档位确实全相等时仍能正确报出「被忽略」',
+    ignored.reasons.some(r => r.includes('忽略')) && ignored.insufficient === undefined,
+    JSON.stringify(ignored),
+  )
 }
 
 console.log('\n== extractModelIds：兼容多种响应布局 ==')
