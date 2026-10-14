@@ -461,6 +461,22 @@ installed), `layout-parity` (needs a DSH installation), and `e2e-live` (needs a
 real MiMo credential) all take the skip path on CI — which is to say **none of
 those three is covered by CI**.
 
+`boot-safety` carries one more limitation: it uses plain node to `import` the
+installed plugin, but DSH keeps its `@deepseek-ai/*` framework packages inside
+its own `app.asar` archive, where only the DSH process can resolve them. On a
+machine with a **real** installation the import therefore fails at the first peer
+dependency and degrades to a skip (exit code 10). That is not a plugin defect —
+the sibling plugin `dsh-workbuddy-connect` works fine inside real DSH while
+plain node cannot load it either. The suite loads via `pathToFileURL` and reports
+this case as a skip rather than a failure; the plugin's `apply()` behaviour is
+fully verified in-repo by `tests/entry.mjs`.
+
+> This suite previously had a **false pass**: the profile held a junction into
+> this repository, which happens to have `node_modules/@deepseek-ai/*`, so plain
+> node resolved the imports and the suite "passed". It was verifying that
+> coincidence, not the plugin. A real installation exposed it immediately, which
+> is why it now behaves as described.
+
 After changing client code, rebuild: a CI gate requires `lib/` to match
 `src/client.js`, so committing a stale artifact fails the build.
 

@@ -336,6 +336,18 @@ node tests/run.mjs credential # 两条凭证来源
 DSH profile）、`layout-parity`（需要 DSH 安装目录）、`e2e-live`（需要真实
 MiMo 凭证）在 CI 上都会走跳过分支——也就是说这三项**没有被 CI 覆盖**。
 
+`boot-safety` 还多一条限制：它要用普通 node 去 `import` 已安装的插件，而 DSH 把
+`@deepseek-ai/*` 框架包放在自己的 `app.asar` 归档里，只有 DSH 进程能解析。因此
+在一台**真实安装**了插件的机器上，这个 import 会在第一个 peer 依赖上失败并退化为
+跳过（退出码 10）。这不是插件缺陷——同类插件 `dsh-workbuddy-connect` 在真实 DSH 里
+工作正常，而普通 node 加载它同样失败。该套件改用 `pathToFileURL` 加载并把这种
+情况如实报为跳过，而不是记成失败；插件的 `apply()` 行为由 `tests/entry.mjs`
+在仓库内完整验证。
+
+> 这里曾经有一个**假通过**：早先 profile 里放的是指向本仓库的 junction，本仓库
+> 恰好有 `node_modules/@deepseek-ai/*`，于是普通 node 能解析、套件"通过"了。
+> 它验证的是那次巧合，不是插件。换成真实安装后立刻暴露出来，才改成现在这样。
+
 改了客户端代码后务必重建：CI 里有一道闸门要求 `lib/` 与 `src/client.js` 一致，
 提交过期产物会直接失败。
 
